@@ -3,7 +3,7 @@
 
 set -e
 
-GITHUB_REPO="your-org/docker-training-labs"
+GITHUB_REPO="beck-at-docker/docker-training-labs"
 BRANCH="${BRANCH:-main}"
 TEMP_DIR=$(mktemp -d)
 
