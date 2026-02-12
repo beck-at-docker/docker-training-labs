@@ -300,7 +300,7 @@ check_lab() {
     echo ""
     
     # Run the appropriate test
-    local test_script="$INSTALL_DIR/tests/test_$(echo "$current_scenario" | tr "[:upper:]" "[:lower:]").sh"
+    local test_script="$INSTALL_DIR/tests/test_${current_scenario,,}.sh"
     local test_output=$(mktemp)
     
     if ! bash "$test_script" fixed > "$test_output" 2>&1; then
