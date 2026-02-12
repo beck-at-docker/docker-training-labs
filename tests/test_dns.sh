@@ -1,0 +1,63 @@
+#!/bin/bash
+# test_dns.sh - Test DNS break/fix scenario
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/test_framework.sh"
+
+echo "=========================================="
+echo "DNS Resolution Scenario Test"
+echo "=========================================="
+echo ""
+
+test_fixed_state() {
+    log_info "Testing fixed state"
+    
+    run_test "Docker daemon running after fix" \
+        "docker info > /dev/null"
+    
+    run_test "Container DNS resolution works" \
+        "timeout 10 docker run --rm alpine:latest nslookup google.com > /dev/null"
+    
+    run_test "Container can ping external hostname" \
+        "timeout 10 docker run --rm alpine:latest ping -c 2 google.com > /dev/null"
+    
+    # Check DNS configuration is valid
+    local dns_servers=$(docker run --rm alpine:latest cat /etc/resolv.conf | grep nameserver | awk '{print $2}')
+    if echo "$dns_servers" | grep -qE "^8\.8\.|^1\.1\.1\.1|^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$"; then
+        log_pass "Valid DNS servers configured: $dns_servers"
+    else
+        log_fail "DNS servers look suspicious: $dns_servers"
+    fi
+    
+    # Verify resolv.conf is no longer immutable
+    local immutable=$(docker run --rm --privileged --pid=host alpine:latest \
+        nsenter -t 1 -m -u -n -i lsattr /etc/resolv.conf 2>/dev/null | grep -o 'i')
+    if [ "$immutable" != "i" ]; then
+        log_pass "resolv.conf immutability removed"
+    else
+        log_warn "resolv.conf still immutable (fix may be temporary)"
+    fi
+    
+    # Test multiple DNS queries to ensure stability
+    run_test "Multiple DNS queries work" \
+        "for i in {1..5}; do docker run --rm alpine:latest nslookup google.com > /dev/null || exit 1; done"
+}
+
+# Main
+test_fixed_state
+echo ""
+generate_report "DNS_Scenario"
+
+local score=$(calculate_score)
+echo ""
+echo "Score: $score%"
+
+if [ $score -ge 90 ]; then
+    echo "Grade: A - Excellent work!"
+elif [ $score -ge 80 ]; then
+    echo "Grade: B - Good job!"
+elif [ $score -ge 70 ]; then
+    echo "Grade: C - Passing"
+else
+    echo "Grade: F - Needs improvement"
+fi
