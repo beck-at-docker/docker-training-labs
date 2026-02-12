@@ -1,0 +1,771 @@
+#!/bin/bash
+# troubleshootmaclab - Main training lab CLI
+
+set -e
+
+# Configuration
+INSTALL_DIR="/usr/local/lib/docker-training-labs"
+STATE_DIR="$HOME/.docker-training-labs"
+CONFIG_FILE="$STATE_DIR/config.json"
+GRADES_FILE="$STATE_DIR/grades.csv"
+REPORTS_DIR="$STATE_DIR/reports"
+
+# Source library functions
+source "$INSTALL_DIR/lib/colors.sh"
+source "$INSTALL_DIR/lib/state.sh"
+source "$INSTALL_DIR/lib/grading.sh"
+
+# Show banner
+show_banner() {
+    clear
+    echo "${BLUE}=========================================="
+    echo "Docker Desktop Training Labs"
+    echo "Break-Fix Troubleshooting Practice"
+    echo "==========================================${NC}"
+    echo ""
+}
+
+# Show main menu
+show_main_menu() {
+    show_banner
+    
+    local current_scenario=$(get_current_scenario)
+    
+    if [ -n "$current_scenario" ] && [ "$current_scenario" != "null" ]; then
+        echo "${YELLOW}⚠️  You currently have an active lab: $current_scenario${NC}"
+        echo ""
+        echo "1. Continue working on current lab"
+        echo "2. Submit current lab for grading"
+        echo "3. Abandon current lab and start new"
+        echo "4. View my report card"
+        echo "5. View leaderboard"
+        echo "0. Exit"
+    else
+        echo "Select a training lab:"
+        echo ""
+        echo "1. DNS Resolution Failure"
+        echo "   ${DIM}Difficulty: ★★☆☆☆ | Time: 15-20 min${NC}"
+        echo "   ${DIM}Learn: Container networking, DNS troubleshooting${NC}"
+        echo ""
+        echo "2. Port Binding Conflicts"
+        echo "   ${DIM}Difficulty: ★★☆☆☆ | Time: 10-15 min${NC}"
+        echo "   ${DIM}Learn: Port management, process inspection${NC}"
+        echo ""
+        echo "3. Bridge Network Corruption"
+        echo "   ${DIM}Difficulty: ★★★★☆ | Time: 20-30 min${NC}"
+        echo "   ${DIM}Learn: Docker networking, iptables, VM internals${NC}"
+        echo ""
+        echo "4. Proxy Configuration Issues"
+        echo "   ${DIM}Difficulty: ★★★☆☆ | Time: 15-25 min${NC}"
+        echo "   ${DIM}Learn: Enterprise networking, proxy configs${NC}"
+        echo ""
+        echo "5. 💀 CHAOS MODE - All labs at once!"
+        echo "   ${DIM}Difficulty: ★★★★★ | Time: 60+ min${NC}"
+        echo ""
+        echo "6. View my report card"
+        echo "7. View leaderboard"
+        echo "0. Exit"
+    fi
+    
+    echo ""
+    echo "${BLUE}==========================================${NC}"
+}
+
+# Start a new lab
+start_lab() {
+    local lab_number=$1
+    local lab_name=""
+    local break_script=""
+    
+    case $lab_number in
+        1)
+            lab_name="DNS"
+            break_script="$INSTALL_DIR/scenarios/break_dns.sh"
+            ;;
+        2)
+            lab_name="PORT"
+            break_script="$INSTALL_DIR/scenarios/break_ports.sh"
+            ;;
+        3)
+            lab_name="BRIDGE"
+            break_script="$INSTALL_DIR/scenarios/break_bridge.sh"
+            ;;
+        4)
+            lab_name="PROXY"
+            break_script="$INSTALL_DIR/scenarios/break_proxy.sh"
+            ;;
+        5)
+            lab_name="CHAOS"
+            break_script="$INSTALL_DIR/scenarios/break_all.sh"
+            ;;
+        *)
+            echo "${RED}Invalid lab selection${NC}"
+            return 1
+            ;;
+    esac
+    
+    show_banner
+    echo "${YELLOW}Starting Lab: $lab_name${NC}"
+    echo ""
+    
+    # Confirm they want to start
+    read -p "This will break your Docker Desktop environment. Continue? (y/N): " confirm
+    if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+        echo "Cancelled."
+        return 0
+    fi
+    
+    echo ""
+    echo "Breaking Docker Desktop..."
+    
+    # Run the break script
+    if ! bash "$break_script"; then
+        echo "${RED}Failed to break the environment. Please check Docker Desktop status.${NC}"
+        return 1
+    fi
+    
+    # Record the start
+    set_current_scenario "$lab_name"
+    set_scenario_start_time "$(date +%s)"
+    
+    show_banner
+    echo "${GREEN}✅ Lab Started: $lab_name${NC}"
+    echo ""
+    echo "${BLUE}=========================================="
+    echo "Your Mission"
+    echo "==========================================${NC}"
+    show_lab_instructions "$lab_name"
+    echo ""
+    echo "${BLUE}=========================================="
+    echo "When You're Done"
+    echo "==========================================${NC}"
+    echo ""
+    echo "When you think you've fixed the issue, run:"
+    echo "${GREEN}  troubleshootmaclab --check${NC}"
+    echo ""
+    echo "This will test your fix and provide a score."
+    echo ""
+    echo "To see these instructions again, run:"
+    echo "  troubleshootmaclab --help"
+    echo ""
+    echo "Good luck! 🚀"
+    echo ""
+}
+
+# Show lab-specific instructions
+show_lab_instructions() {
+    local lab=$1
+    
+    case $lab in
+        DNS)
+            cat << 'EOF'
+🔍 Problem: Containers cannot resolve external hostnames
+
+Your Docker Desktop containers are unable to access external
+resources. Image pulls fail, and containers can't reach the
+internet even though your Mac can.
+
+Symptoms you should observe:
+- `docker pull` commands fail
+- Containers can't ping google.com
+- `nslookup` inside containers fails
+- Host machine DNS works fine
+
+Diagnostic Commands to Try:
+- docker run --rm alpine:latest nslookup google.com
+- docker run --rm alpine:latest cat /etc/resolv.conf
+- docker run --rm alpine:latest ping -c 3 8.8.8.8
+- docker info | grep -i dns
+
+Fix it using any method you know!
+EOF
+            ;;
+        PORT)
+            cat << 'EOF'
+🔍 Problem: Containers fail to bind to common ports
+
+When you try to start containers that need standard ports
+(80, 443, 3306, 5432, 8080), you get "address already in use"
+errors.
+
+Symptoms you should observe:
+- docker run -p 80:80 fails with port allocation error
+- Multiple ports are mysteriously occupied
+- Some blocking containers may be hard to find
+
+Diagnostic Commands to Try:
+- docker ps -a
+- lsof -nP -iTCP:80 | grep LISTEN
+- docker ps -a --filter "name=."
+- netstat -an | grep LISTEN
+
+Fix it by identifying and removing port conflicts!
+EOF
+            ;;
+        BRIDGE)
+            cat << 'EOF'
+🔍 Problem: Container networking is broken
+
+Your containers start successfully but have no network
+connectivity. They can't reach the internet or each other,
+even though they appear to have IP addresses.
+
+Symptoms you should observe:
+- Containers can't ping external IPs
+- Containers can't communicate with each other
+- Docker daemon is running normally
+- Network appears to exist but doesn't work
+
+Diagnostic Commands to Try:
+- docker network ls
+- docker network inspect bridge
+- docker run --rm alpine:latest ping -c 3 8.8.8.8
+- docker run --rm alpine:latest ip route
+
+Advanced Diagnostics:
+- Check iptables rules in the Docker VM
+- Look for network subnet conflicts
+
+Fix it by restoring proper network functionality!
+EOF
+            ;;
+        PROXY)
+            cat << 'EOF'
+🔍 Problem: Docker cannot reach external registries
+
+Your Docker Desktop cannot pull images or access external
+resources. This is likely due to proxy misconfiguration.
+
+Symptoms you should observe:
+- docker pull commands fail with proxy errors
+- Containers can't reach the internet
+- Error messages mention proxy or connection refused
+- Host machine internet access works fine
+
+Diagnostic Commands to Try:
+- cat ~/.docker/daemon.json
+- env | grep -i proxy
+- docker info | grep -i proxy
+- docker pull hello-world
+
+Check for:
+- Invalid proxy hostnames
+- Wrong proxy ports
+- Conflicting environment variables
+
+Fix it by correcting proxy configuration!
+EOF
+            ;;
+        CHAOS)
+            cat << 'EOF'
+🔍 Problem: EVERYTHING IS BROKEN
+
+Multiple systems have failed simultaneously. You'll need to
+diagnose and fix multiple issues:
+- DNS resolution
+- Port conflicts
+- Network connectivity
+- Proxy configuration
+
+This simulates a real disaster scenario where multiple things
+go wrong at once. Prioritize wisely and fix systematically!
+
+Symptoms: Too many to list. You'll know it when you see it.
+
+Tip: Fix issues in order of dependency:
+1. Network/Bridge issues (affects everything)
+2. DNS issues (affects external connectivity)
+3. Proxy issues (affects registries)
+4. Port conflicts (affects services)
+
+Good luck. You'll need it. 💀
+EOF
+            ;;
+    esac
+}
+
+# Check/test the current lab
+check_lab() {
+    local current_scenario=$(get_current_scenario)
+    
+    if [ -z "$current_scenario" ] || [ "$current_scenario" = "null" ]; then
+        echo "${RED}No active lab. Start a lab first.${NC}"
+        exit 1
+    fi
+    
+    show_banner
+    echo "${YELLOW}Testing your fix for: $current_scenario${NC}"
+    echo ""
+    echo "Running diagnostic tests..."
+    echo ""
+    
+    # Run the appropriate test
+    local test_script="$INSTALL_DIR/tests/test_${current_scenario,,}.sh"
+    local test_output=$(mktemp)
+    
+    if ! bash "$test_script" fixed > "$test_output" 2>&1; then
+        echo "${RED}Test script failed to run${NC}"
+        cat "$test_output"
+        rm "$test_output"
+        exit 1
+    fi
+    
+    # Parse the test output
+    local score=$(grep "Score:" "$test_output" | grep -o '[0-9]\+' | head -1)
+    local tests_passed=$(grep "Tests Passed:" "$test_output" | grep -o '[0-9]\+')
+    local tests_failed=$(grep "Tests Failed:" "$test_output" | grep -o '[0-9]\+')
+    
+    # Calculate duration
+    local start_time=$(get_scenario_start_time)
+    local end_time=$(date +%s)
+    local duration=$((end_time - start_time))
+    local duration_min=$((duration / 60))
+    
+    # Show results
+    show_banner
+    echo "${BLUE}=========================================="
+    echo "Lab Results: $current_scenario"
+    echo "==========================================${NC}"
+    echo ""
+    cat "$test_output"
+    echo ""
+    
+    # Save the full report
+    local report_file="$REPORTS_DIR/${current_scenario}_$(date +%Y%m%d_%H%M%S).txt"
+    cat "$test_output" > "$report_file"
+    
+    # Record the grade
+    record_grade "$USER" "$current_scenario" "$score" "$duration"
+    
+    # Show personalized feedback
+    echo "${BLUE}=========================================="
+    echo "Feedback"
+    echo "==========================================${NC}"
+    echo ""
+    echo "Time taken: ${duration_min} minutes"
+    echo "Tests passed: $tests_passed"
+    echo "Tests failed: $tests_failed"
+    echo ""
+    
+    if [ $score -ge 90 ]; then
+        echo "${GREEN}⭐⭐⭐ Excellent work!${NC}"
+        echo "You demonstrated strong troubleshooting skills."
+        echo "You're ready for production support on this topic."
+    elif [ $score -ge 80 ]; then
+        echo "${GREEN}⭐⭐ Good job!${NC}"
+        echo "You fixed the main issues successfully."
+        echo "Review the failed tests to improve further."
+    elif [ $score -ge 70 ]; then
+        echo "${YELLOW}⭐ Passing${NC}"
+        echo "You got the basics, but missed some key points."
+        echo "Consider trying this lab again for better mastery."
+    else
+        echo "${RED}❌ Needs Improvement${NC}"
+        echo "The issue wasn't fully resolved."
+        echo "Review the diagnostic steps and try again."
+    fi
+    
+    echo ""
+    echo "Full report saved to:"
+    echo "  $report_file"
+    echo ""
+    
+    # Clear the current scenario
+    clear_current_scenario
+    
+    # Offer to continue
+    echo "${BLUE}==========================================${NC}"
+    echo ""
+    read -p "Would you like to try another lab? (y/N): " continue_training
+    if [ "$continue_training" = "y" ] || [ "$continue_training" = "Y" ]; then
+        main
+    else
+        echo ""
+        echo "Training session complete. Great work!"
+        echo ""
+        echo "To see your overall progress, run:"
+        echo "  troubleshootmaclab --report"
+        echo ""
+    fi
+    
+    rm "$test_output"
+}
+
+# Show help
+show_help() {
+    show_banner
+    cat << 'EOF'
+Usage: troubleshootmaclab [OPTION]
+
+Interactive Docker Desktop troubleshooting training labs.
+
+With no options, launches the interactive lab selection menu.
+
+Options:
+  --check          Test and grade your current lab solution
+  --report         Show your training report card
+  --leaderboard    Show top performers
+  --status         Show currently active lab
+  --abandon        Abandon current lab without scoring
+  --reset          Reset a broken lab to try again
+  --help           Show this help message
+
+Examples:
+  troubleshootmaclab              # Start interactive menu
+  troubleshootmaclab --check      # Submit current lab for grading
+  troubleshootmaclab --report     # View your progress
+  troubleshootmaclab --reset      # Reset current lab (keeps it active)
+
+Lab Workflow:
+  1. Run 'troubleshootmaclab' and select a lab
+  2. The lab will break Docker Desktop in a specific way
+  3. Use your troubleshooting skills to diagnose and fix
+  4. Run 'troubleshootmaclab --check' when done
+  5. Review your score and feedback
+
+Current active lab (if any):
+EOF
+    local current=$(get_current_scenario)
+    if [ -n "$current" ] && [ "$current" != "null" ]; then
+        echo "  $current"
+        local start_time=$(get_scenario_start_time)
+        local now=$(date +%s)
+        local elapsed=$(( (now - start_time) / 60 ))
+        echo "  Started: $elapsed minutes ago"
+    else
+        echo "  None"
+    fi
+    echo ""
+    echo "For more information, visit:"
+    echo "  https://docs.docker.com"
+    echo ""
+}
+
+# Show current status
+show_status() {
+    show_banner
+    local current=$(get_current_scenario)
+    
+    if [ -z "$current" ] || [ "$current" = "null" ]; then
+        echo "No active lab."
+        echo ""
+        echo "Start a lab with:"
+        echo "  troubleshootmaclab"
+        echo ""
+    else
+        echo "${YELLOW}Active Lab: $current${NC}"
+        echo ""
+        local start_time=$(get_scenario_start_time)
+        local now=$(date +%s)
+        local elapsed=$(( (now - start_time) / 60 ))
+        echo "Time elapsed: $elapsed minutes"
+        echo ""
+        echo "When done, run:"
+        echo "  ${GREEN}troubleshootmaclab --check${NC}"
+        echo ""
+        echo "To see instructions again:"
+        echo "  troubleshootmaclab --help"
+        echo ""
+    fi
+}
+
+# Show report card
+show_report_card() {
+    show_banner
+    echo "${BLUE}=========================================="
+    echo "Your Training Report Card"
+    echo "==========================================${NC}"
+    echo ""
+    
+    if [ ! -f "$GRADES_FILE" ] || [ $(wc -l < "$GRADES_FILE") -le 1 ]; then
+        echo "No labs completed yet."
+        echo ""
+        echo "Start your first lab with:"
+        echo "  troubleshootmaclab"
+        echo ""
+        return
+    fi
+    
+    # Parse grades
+    local total_score=0
+    local lab_count=0
+    local dns_score=""
+    local port_score=""
+    local bridge_score=""
+    local proxy_score=""
+    local chaos_score=""
+    
+    while IFS=',' read -r trainee scenario score timestamp duration; do
+        if [ "$trainee" = "trainee_id" ]; then continue; fi
+        if [ "$trainee" != "$USER" ]; then continue; fi
+        
+        case "$scenario" in
+            DNS) dns_score="$score%" ;;
+            PORT) port_score="$score%" ;;
+            BRIDGE) bridge_score="$score%" ;;
+            PROXY) proxy_score="$score%" ;;
+            CHAOS) chaos_score="$score%" ;;
+        esac
+        
+        total_score=$((total_score + score))
+        ((lab_count++))
+    done < "$GRADES_FILE"
+    
+    echo "Lab Scores:"
+    echo "  DNS Resolution:      ${dns_score:-Not attempted}"
+    echo "  Port Conflicts:      ${port_score:-Not attempted}"
+    echo "  Bridge Network:      ${bridge_score:-Not attempted}"
+    echo "  Proxy Configuration: ${proxy_score:-Not attempted}"
+    if [ -n "$chaos_score" ]; then
+        echo "  💀 CHAOS MODE:       $chaos_score"
+    fi
+    echo ""
+    
+    if [ $lab_count -gt 0 ]; then
+        local avg_score=$((total_score / lab_count))
+        echo "Overall Average: $avg_score%"
+        echo ""
+        
+        if [ $avg_score -ge 90 ]; then
+            echo "Grade: ${GREEN}A - Excellent!${NC} 🎉"
+            echo "You're ready for production Docker Desktop support."
+        elif [ $avg_score -ge 80 ]; then
+            echo "Grade: ${GREEN}B - Good work!${NC}"
+            echo "Strong troubleshooting skills. Minor review recommended."
+        elif [ $avg_score -ge 70 ]; then
+            echo "Grade: ${YELLOW}C - Passing${NC}"
+            echo "Consider retaking labs with low scores for improvement."
+        else
+            echo "Grade: ${RED}F - Needs improvement${NC}"
+            echo "Please review the training materials and try again."
+        fi
+    fi
+    
+    echo ""
+    echo "Completed labs: $lab_count"
+    echo ""
+    echo "${BLUE}==========================================${NC}"
+    echo ""
+}
+
+# Show leaderboard
+show_leaderboard() {
+    show_banner
+    echo "${BLUE}=========================================="
+    echo "Training Leaderboard - Top 10"
+    echo "==========================================${NC}"
+    echo ""
+    
+    if [ ! -f "$GRADES_FILE" ] || [ $(wc -l < "$GRADES_FILE") -le 1 ]; then
+        echo "No scores recorded yet."
+        echo ""
+        return
+    fi
+    
+    # Calculate average scores per trainee
+    declare -A trainee_scores
+    declare -A trainee_counts
+    
+    while IFS=',' read -r trainee scenario score timestamp duration; do
+        if [ "$trainee" = "trainee_id" ]; then continue; fi
+        
+        if [ -z "${trainee_scores[$trainee]}" ]; then
+            trainee_scores[$trainee]=0
+            trainee_counts[$trainee]=0
+        fi
+        
+        trainee_scores[$trainee]=$((trainee_scores[$trainee] + score))
+        trainee_counts[$trainee]=$((trainee_counts[$trainee] + 1))
+    done < "$GRADES_FILE"
+    
+    # Calculate averages and sort
+    declare -A trainee_averages
+    for trainee in "${!trainee_scores[@]}"; do
+        trainee_averages[$trainee]=$((trainee_scores[$trainee] / trainee_counts[$trainee]))
+    done
+    
+    # Sort and display
+    local rank=1
+    for trainee in "${!trainee_averages[@]}"; do
+        echo "${trainee_averages[$trainee]} $trainee ${trainee_counts[$trainee]}"
+    done | sort -rn | head -10 | while read -r score trainee count; do
+        local medal=""
+        case $rank in
+            1) medal="🥇" ;;
+            2) medal="🥈" ;;
+            3) medal="🥉" ;;
+            *) medal="  " ;;
+        esac
+        
+        printf "%s %2d. %-20s %3d%% (%d labs)\n" "$medal" "$rank" "$trainee" "$score" "$count"
+        ((rank++))
+    done
+    
+    echo ""
+    echo "${BLUE}==========================================${NC}"
+    echo ""
+}
+
+# Abandon current lab
+abandon_lab() {
+    local current=$(get_current_scenario)
+    
+    if [ -z "$current" ] || [ "$current" = "null" ]; then
+        echo "No active lab to abandon."
+        return
+    fi
+    
+    echo "${YELLOW}Abandoning lab: $current${NC}"
+    read -p "Are you sure? This will not be scored. (y/N): " confirm
+    
+    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+        clear_current_scenario
+        echo "Lab abandoned."
+    else
+        echo "Cancelled."
+    fi
+}
+
+# Reset current lab (re-break it)
+reset_lab() {
+    local current=$(get_current_scenario)
+    
+    if [ -z "$current" ] || [ "$current" = "null" ]; then
+        echo "No active lab to reset."
+        return
+    fi
+    
+    echo "${YELLOW}Resetting lab: $current${NC}"
+    echo "This will re-break the environment so you can try again."
+    read -p "Continue? (y/N): " confirm
+    
+    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+        # Re-run the break script
+        local break_script="$INSTALL_DIR/scenarios/break_${current,,}.sh"
+        bash "$break_script"
+        
+        # Reset the timer
+        set_scenario_start_time "$(date +%s)"
+        
+        echo "${GREEN}Lab reset. Timer restarted. Good luck!${NC}"
+    else
+        echo "Cancelled."
+    fi
+}
+
+# Main function
+main() {
+    # Handle command line arguments
+    case "${1:-}" in
+        --check|--submit)
+            check_lab
+            exit 0
+            ;;
+        --help|-h)
+            show_help
+            exit 0
+            ;;
+        --status)
+            show_status
+            exit 0
+            ;;
+        --report|--grades)
+            show_report_card
+            exit 0
+            ;;
+        --leaderboard)
+            show_leaderboard
+            exit 0
+            ;;
+        --abandon)
+            abandon_lab
+            exit 0
+            ;;
+        --reset)
+            reset_lab
+            exit 0
+            ;;
+        "")
+            # Interactive mode
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Run 'troubleshootmaclab --help' for usage information."
+            exit 1
+            ;;
+    esac
+    
+    # Interactive menu loop
+    while true; do
+        show_main_menu
+        read -p "Select option: " choice
+        
+        local current=$(get_current_scenario)
+        
+        if [ -n "$current" ] && [ "$current" != "null" ]; then
+            # Menu when lab is active
+            case $choice in
+                1)
+                    echo ""
+                    echo "Continue working on your lab."
+                    echo "Run 'troubleshootmaclab --check' when done."
+                    echo ""
+                    read -p "Press enter to continue..."
+                    exit 0
+                    ;;
+                2)
+                    check_lab
+                    ;;
+                3)
+                    abandon_lab
+                    if [ "$?" -eq 0 ]; then
+                        continue
+                    fi
+                    ;;
+                4)
+                    show_report_card
+                    read -p "Press enter to continue..."
+                    ;;
+                5)
+                    show_leaderboard
+                    read -p "Press enter to continue..."
+                    ;;
+                0)
+                    echo "Goodbye!"
+                    exit 0
+                    ;;
+                *)
+                    echo "Invalid option"
+                    sleep 1
+                    ;;
+            esac
+        else
+            # Menu when no lab is active
+            case $choice in
+                [1-5])
+                    start_lab $choice
+                    exit 0
+                    ;;
+                6)
+                    show_report_card
+                    read -p "Press enter to continue..."
+                    ;;
+                7)
+                    show_leaderboard
+                    read -p "Press enter to continue..."
+                    ;;
+                0)
+                    echo "Goodbye!"
+                    exit 0
+                    ;;
+                *)
+                    echo "Invalid option"
+                    sleep 1
+                    ;;
+            esac
+        fi
+    done
+}
+
+# Run main
+main "$@"

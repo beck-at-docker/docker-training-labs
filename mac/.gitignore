@@ -1,0 +1,30 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Thumbnails
+._*
+
+# Testing artifacts
+/tmp/
+*.tmp
+*.log
+
+# User data (these stay local)
+.docker-training-labs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Backup files
+*.backup
+*.bak
+
+# Test results
+test_results/
+reports/
