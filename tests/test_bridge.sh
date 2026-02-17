@@ -42,6 +42,7 @@ test_fixed_state() {
         fi
     done)
     
+    log_test "All subnet conflicts resolved"
     if [ -z "$conflict_nets" ]; then
         log_pass "All subnet conflicts resolved"
     else
@@ -52,12 +53,14 @@ test_fixed_state() {
     local forward_rules=$(docker run --rm --privileged --pid=host alpine:latest \
         nsenter -t 1 -m -u -n -i iptables -L FORWARD -n)
     
+    log_test "Docker iptables chains present"
     if echo "$forward_rules" | grep -q "DOCKER"; then
         log_pass "Docker iptables chains present"
     else
-        log_warn "Docker iptables chains may be missing"
+        log_fail "Docker iptables chains may be missing"
     fi
     
+    log_test "No blocking DROP rules found"
     if ! echo "$forward_rules" | grep -q "DROP.*docker0"; then
         log_pass "No blocking DROP rules found"
     else
@@ -65,7 +68,7 @@ test_fixed_state() {
     fi
     
     # Cleanup test containers
-    docker rm -f broken-web broken-app 2>/dev/null
+    docker rm -f broken-web broken-app 2>/dev/null || true
 }
 
 # Main

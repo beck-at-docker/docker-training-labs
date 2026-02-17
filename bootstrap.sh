@@ -14,6 +14,7 @@ echo ""
 
 # Check prerequisites
 echo "Checking prerequisites..."
+
 if ! command -v docker &> /dev/null; then
     echo "❌ Docker is not installed. Please install Docker Desktop first."
     echo "   Download from: https://www.docker.com/products/docker-desktop"
@@ -26,6 +27,19 @@ if ! docker info &> /dev/null; then
 fi
 
 echo "✅ Docker Desktop is running"
+
+# Check for Python 3 (required for state management)
+if ! command -v python3 &> /dev/null; then
+    echo "❌ Python 3 is not installed. This is required for state management."
+    echo ""
+    echo "On macOS, Python 3 should be pre-installed. If not, install it with:"
+    echo "  brew install python3"
+    echo ""
+    echo "Or download from: https://www.python.org/downloads/"
+    exit 1
+fi
+
+echo "✅ Python 3 found"
 echo ""
 
 # Clone from GitHub

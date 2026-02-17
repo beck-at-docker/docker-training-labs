@@ -10,6 +10,28 @@ CONFIG_FILE="$STATE_DIR/config.json"
 GRADES_FILE="$STATE_DIR/grades.csv"
 REPORTS_DIR="$STATE_DIR/reports"
 
+# Ensure state directories exist (in case install was interrupted)
+mkdir -p "$STATE_DIR" "$REPORTS_DIR" 2>/dev/null || true
+
+# Initialize config file if missing
+if [ ! -f "$CONFIG_FILE" ]; then
+    cat > "$CONFIG_FILE" << EOF
+{
+  "version": "1.0.0",
+  "trainee_id": "$USER",
+  "current_scenario": null,
+  "scenario_start_time": null
+}
+EOF
+fi
+
+# Initialize grades file if missing
+if [ ! -f "$GRADES_FILE" ]; then
+    cat > "$GRADES_FILE" << EOF
+trainee_id,scenario,score,timestamp,duration_seconds
+EOF
+fi
+
 # Source library functions
 source "$INSTALL_DIR/lib/colors.sh"
 source "$INSTALL_DIR/lib/state.sh"
@@ -299,8 +321,9 @@ check_lab() {
     echo "Running diagnostic tests..."
     echo ""
     
-    # Run the appropriate test
-    local test_script="$INSTALL_DIR/tests/test_$(echo "$current_scenario" | tr "[:upper:]" "[:lower:]").sh"
+    # Run the appropriate test (Bash 3 compatible lowercase conversion)
+    local scenario_lower=$(echo "$current_scenario" | tr '[:upper:]' '[:lower:]')
+    local test_script="$INSTALL_DIR/tests/test_${scenario_lower}.sh"
     local test_output=$(mktemp)
     
     if ! bash "$test_script" fixed > "$test_output" 2>&1; then
@@ -310,10 +333,13 @@ check_lab() {
         exit 1
     fi
     
-    # Parse the test output
+    # Parse the test output with defaults for safety
     local score=$(grep "Score:" "$test_output" | grep -o '[0-9]\+' | head -1)
+    score=${score:-0}  # Default to 0 if empty
     local tests_passed=$(grep "Tests Passed:" "$test_output" | grep -o '[0-9]\+')
+    tests_passed=${tests_passed:-0}
     local tests_failed=$(grep "Tests Failed:" "$test_output" | grep -o '[0-9]\+')
+    tests_failed=${tests_failed:-0}
     
     # Calculate duration
     local start_time=$(get_scenario_start_time)
@@ -548,7 +574,7 @@ show_report_card() {
     echo ""
 }
 
-# Show leaderboard
+# Show leaderboard (Bash 3 compatible - uses awk instead of associative arrays)
 show_leaderboard() {
     show_banner
     echo -e "${BLUE}=========================================="
@@ -562,44 +588,36 @@ show_leaderboard() {
         return
     fi
     
-    # Calculate average scores per trainee
-    declare -A trainee_scores
-    declare -A trainee_counts
-    
+    # Use awk to calculate averages (Bash 3 compatible)
+    # Process CSV and calculate average scores per trainee
+    local rank=1
     while IFS=',' read -r trainee scenario score timestamp duration; do
         if [ "$trainee" = "trainee_id" ]; then continue; fi
-        
-        if [ -z "${trainee_scores[$trainee]}" ]; then
-            trainee_scores[$trainee]=0
-            trainee_counts[$trainee]=0
-        fi
-        
-        trainee_scores[$trainee]=$((trainee_scores[$trainee] + score))
-        trainee_counts[$trainee]=$((trainee_counts[$trainee] + 1))
-    done < "$GRADES_FILE"
-    
-    # Calculate averages and sort
-    declare -A trainee_averages
-    for trainee in "${!trainee_scores[@]}"; do
-        trainee_averages[$trainee]=$((trainee_scores[$trainee] / trainee_counts[$trainee]))
-    done
-    
-    # Sort and display
-    local rank=1
-    for trainee in "${!trainee_averages[@]}"; do
-        echo -e "${trainee_averages[$trainee]} $trainee ${trainee_counts[$trainee]}"
-    done | sort -rn | head -10 | while read -r score trainee count; do
-        local medal=""
-        case $rank in
-            1) medal="🥇" ;;
-            2) medal="🥈" ;;
-            3) medal="🥉" ;;
-            *) medal="  " ;;
-        esac
-        
-        printf "%s %2d. %-20s %3d%% (%d labs)\n" "$medal" "$rank" "$trainee" "$score" "$count"
-        ((rank++))
-    done
+        echo "$trainee $score"
+    done < "$GRADES_FILE" | \
+    awk '{
+        scores[$1] += $2
+        counts[$1]++
+    }
+    END {
+        for (trainee in scores) {
+            avg = int(scores[trainee] / counts[trainee])
+            printf "%d %s %d\n", avg, trainee, counts[trainee]
+        }
+    }' | sort -rn | head -10 | {
+        while read -r score trainee count; do
+            local medal=""
+            case $rank in
+                1) medal="🥇" ;;
+                2) medal="🥈" ;;
+                3) medal="🥉" ;;
+                *) medal="  " ;;
+            esac
+            
+            printf "%s %2d. %-20s %3d%% (%d labs)\n" "$medal" "$rank" "$trainee" "$score" "$count"
+            rank=$((rank + 1))
+        done
+    }
     
     echo ""
     echo -e "${BLUE}==========================================${NC}"
@@ -640,8 +658,9 @@ reset_lab() {
     read -p "Continue? (y/N): " confirm
     
     if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
-        # Re-run the break script
-        local break_script="$INSTALL_DIR/scenarios/break_${current,,}.sh"
+        # Re-run the break script (Bash 3 compatible lowercase conversion)
+        local current_lower=$(echo "$current" | tr '[:upper:]' '[:lower:]')
+        local break_script="$INSTALL_DIR/scenarios/break_${current_lower}.sh"
         bash "$break_script"
         
         # Reset the timer

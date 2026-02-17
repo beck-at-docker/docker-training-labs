@@ -23,6 +23,7 @@ test_fixed_state() {
     
     # Verify daemon.json is clean or has valid proxy
     local daemon_config="$HOME/.docker/daemon.json"
+    log_test "daemon.json proxy configuration valid"
     if [ -f "$daemon_config" ]; then
         if grep -q "invalid-proxy.local\|192.0.2" "$daemon_config"; then
             log_fail "Still has invalid proxy in daemon.json"
@@ -38,6 +39,7 @@ test_fixed_state() {
     fi
     
     # Check environment variables are clean
+    log_test "Environment proxy variables valid"
     if echo "$HTTP_PROXY" | grep -q "192.0.2\|invalid"; then
         log_fail "Still has invalid proxy in environment"
     elif [ -n "$HTTP_PROXY" ]; then
@@ -53,10 +55,8 @@ test_fixed_state() {
     run_test "Build works (implies registry access)" \
         "echo 'FROM alpine:latest\nRUN echo test' | docker build -t test-proxy-fix - > /dev/null 2>&1"
     
-    docker rmi test-proxy-fix 2>/dev/null
-    
     # Cleanup
-    docker rmi hello-world busybox 2>/dev/null
+    docker rmi test-proxy-fix hello-world busybox 2>/dev/null || true
 }
 
 # Main
