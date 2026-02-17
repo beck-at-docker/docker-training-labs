@@ -23,6 +23,7 @@ test_fixed_state() {
     
     # Check DNS configuration is valid
     local dns_servers=$(docker run --rm alpine:latest cat /etc/resolv.conf | grep nameserver | awk '{print $2}')
+    log_test "Valid DNS servers configured"
     if echo "$dns_servers" | grep -qE "^8\.8\.|^1\.1\.1\.1|^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$" && ! echo "$dns_servers" | grep -q "192.0.2"; then
         log_pass "Valid DNS servers configured: $(echo $dns_servers | tr '\n' ' ')"
     else
@@ -32,10 +33,11 @@ test_fixed_state() {
     # Verify resolv.conf is no longer immutable
     local immutable=$(docker run --rm --privileged --pid=host alpine:latest \
         nsenter -t 1 -m -u -n -i lsattr /etc/resolv.conf 2>/dev/null | grep -o 'i')
+    log_test "resolv.conf immutability removed"
     if [ "$immutable" != "i" ]; then
         log_pass "resolv.conf immutability removed"
     else
-        log_warn "resolv.conf still immutable (fix may be temporary)"
+        log_fail "resolv.conf still immutable (fix may be temporary)"
     fi
     
     # Test multiple DNS queries to ensure stability

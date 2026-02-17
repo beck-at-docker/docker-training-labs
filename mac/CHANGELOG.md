@@ -2,6 +2,28 @@
 
 All notable changes to Docker Desktop Training Labs will be documented in this file.
 
+## [1.0.1] - 2025-02-13
+
+### Bug Fixes
+
+#### Critical
+- **Added missing test_chaos.sh**: CHAOS MODE (Lab 5) now has proper testing support with comprehensive validation of all four systems
+- **Fixed Bash 3 compatibility**: Replaced `${var,,}` syntax in `reset_lab()` and `check_lab()` functions with `tr` command for macOS default Bash 3.2
+- **Fixed proxy break script**: Now properly detects shell type (zsh/bash), creates timestamped backups, and provides clear user instructions without dangerous `source` commands
+
+#### Major  
+- **Added Python 3 dependency check**: Both `install.sh` and `bootstrap.sh` now verify Python 3.6+ is available before installation
+- **Fixed port squatter cleanup**: `break_ports.sh` now kills existing squatter processes and containers before creating new ones, preventing zombie process accumulation
+- **Fixed bridge network cleanup**: `break_bridge.sh` now removes existing fake networks before creating new ones, preventing inconsistent state
+- **Added state directory initialization**: Main script now creates required directories on startup, preventing failures if installation was interrupted
+- **Added safe score parsing**: `check_lab()` function now uses default values (0) for missing test output, preventing arithmetic errors
+
+### Improvements
+- More robust error handling throughout
+- Better cleanup in all break scripts  
+- Timestamped backups for shell RC files
+- Clear user messaging about required restarts
+
 ## [1.0.0] - 2025-02-12
 
 ### Initial Release
@@ -65,11 +87,22 @@ Future versions may include:
 
 | Version | Date       | Changes                          |
 |---------|------------|----------------------------------|
+| 1.0.1   | 2025-02-13 | Bug fixes (Bash 3, CHAOS test, cleanup) |
 | 1.0.0   | 2025-02-12 | Initial release with 5 scenarios |
 
 ---
 
 ## Migration Notes
+
+### From 1.0.0 to 1.0.1
+
+No migration needed. Simply reinstall:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/beck-at-docker/docker-training-labs/main/bootstrap.sh | bash
+```
+
+Your training data in `~/.docker-training-labs` will be preserved.
 
 ### From Pre-Release Versions
 
@@ -84,7 +117,7 @@ sudo rm /usr/local/bin/troubleshootmaclab
 # rm -rf ~/.docker-training-labs
 
 # Install new version
-curl -fsSL https://raw.githubusercontent.com/your-org/docker-training-labs/main/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/beck-at-docker/docker-training-labs/main/bootstrap.sh | bash
 ```
 
 Your training data in `~/.docker-training-labs` will be preserved if not deleted.

@@ -5,23 +5,33 @@ set -e
 
 echo "Corrupting Docker bridge network..."
 
-# Create overlapping custom networks
-docker network create --subnet=172.17.0.0/16 fake-bridge-1 2>/dev/null || true
+# Remove any existing fake bridge networks first
+docker network rm fake-bridge-1 fake-bridge-2 2>/dev/null || true
+
+# Clean up any leftover test containers
+docker rm -f broken-web broken-app 2>/dev/null || true
+
+# Give Docker a moment to clean up
+sleep 1
+
+# Create overlapping custom networks that conflict with default bridge
+docker network create --subnet=172.17.0.0/16 fake-bridge-1
 docker network create --subnet=172.17.0.0/16 fake-bridge-2 2>/dev/null || true
 
 # Corrupt the default bridge by messing with iptables in the VM
 docker run --rm --privileged --pid=host alpine:latest nsenter -t 1 -m -u -n -i sh -c '
-    # Save existing rules
-    iptables-save > /tmp/iptables.backup
+    # Save existing rules for reference
+    iptables-save > /tmp/iptables.backup 2>/dev/null || true
     
-    # Delete Docker chain rules
+    # Delete Docker chain rules (may not all exist, ignore errors)
     iptables -D FORWARD -o docker0 -j DOCKER 2>/dev/null || true
     iptables -D FORWARD -o docker0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
     iptables -D FORWARD -i docker0 ! -o docker0 -j ACCEPT 2>/dev/null || true
     iptables -D FORWARD -i docker0 -o docker0 -j ACCEPT 2>/dev/null || true
     
-    # Add conflicting rules
-    iptables -I FORWARD 1 -i docker0 -j DROP
+    # Add conflicting rule at the top of FORWARD chain
+    # This blocks all traffic from docker0 interface
+    iptables -I FORWARD 1 -i docker0 -j DROP 2>/dev/null || true
 '
 
 # Create containers that appear to work but can't communicate

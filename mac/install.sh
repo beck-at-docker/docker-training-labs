@@ -26,6 +26,30 @@ if ! docker info &> /dev/null; then
 fi
 
 echo "✅ Docker Desktop is running"
+
+# Check for Python 3 (required for state management)
+if ! command -v python3 &> /dev/null; then
+    echo "❌ Python 3 is not installed. This is required for state management."
+    echo ""
+    echo "On macOS, Python 3 should be pre-installed. If not, install it with:"
+    echo "  brew install python3"
+    echo ""
+    echo "Or download from: https://www.python.org/downloads/"
+    exit 1
+fi
+
+# Verify Python 3 version is at least 3.6
+PYTHON_VERSION=$(python3 -c 'import sys; print(".".join(map(str, sys.version_info[:2])))')
+PYTHON_MAJOR=$(echo "$PYTHON_VERSION" | cut -d. -f1)
+PYTHON_MINOR=$(echo "$PYTHON_VERSION" | cut -d. -f2)
+
+if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" -lt 6 ]); then
+    echo "❌ Python 3.6+ is required. Found Python $PYTHON_VERSION"
+    echo "Please upgrade Python 3."
+    exit 1
+fi
+
+echo "✅ Python $PYTHON_VERSION found"
 echo ""
 
 # Create installation directories
