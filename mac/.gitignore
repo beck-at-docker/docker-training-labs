@@ -14,6 +14,9 @@
 # User data (these stay local)
 .docker-training-labs/
 
+# Development tools (not for distribution)
+fixes/
+
 # IDE
 .vscode/
 .idea/
