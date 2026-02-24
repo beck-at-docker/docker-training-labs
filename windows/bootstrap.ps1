@@ -1,10 +1,10 @@
 # bootstrap.ps1 - One-command installer for Docker Desktop Training Labs (Windows)
 #
 # Usage (run from any PowerShell window - elevation is handled automatically):
-#   irm https://raw.githubusercontent.com/beck-at-docker/docker-training-labs-windows/main/bootstrap.ps1 | iex
+#   irm https://raw.githubusercontent.com/beck-at-docker/docker-training-labs-windows/main/lab/bootstrap.ps1 | iex
 #
 # Override branch:
-#   $env:BRANCH="dev"; irm https://raw.githubusercontent.com/beck-at-docker/docker-training-labs-windows/main/bootstrap.ps1 | iex
+#   $env:BRANCH="dev"; irm https://raw.githubusercontent.com/beck-at-docker/docker-training-labs-windows/main/lab/bootstrap.ps1 | iex
 
 #Requires -Version 5.1
 
@@ -31,7 +31,7 @@ if (-not $isAdmin) {
     Write-Host "Administrator privileges required."
     Write-Host "Re-launching in an elevated window..."
     Write-Host ""
-    $scriptUrl = "https://raw.githubusercontent.com/$GITHUB_REPO/refs/heads/$BRANCH/bootstrap.ps1"
+    $scriptUrl = "https://raw.githubusercontent.com/$GITHUB_REPO/refs/heads/$BRANCH/lab/bootstrap.ps1"
     $elevatedCmd = "& { `$env:BRANCH='$BRANCH'; irm '$scriptUrl' | iex }"
     Start-Process powershell -Verb RunAs -ArgumentList "-ExecutionPolicy", "Bypass", "-Command", $elevatedCmd -Wait
     exit 0
@@ -101,10 +101,11 @@ if (-not $repoRoot) {
     pause; exit 1
 }
 
-# install.ps1 is at repo root for the standalone repo
-$installScript = Join-Path $repoRoot.FullName "install.ps1"
+# lab files live under lab/ within the repo root
+$labDir = Join-Path $repoRoot.FullName "lab"
+$installScript = Join-Path $labDir "install.ps1"
 if (-not (Test-Path $installScript)) {
-    Write-Host "ERROR: install.ps1 not found in archive. Expected: $installScript"
+    Write-Host "ERROR: install.ps1 not found. Expected: $installScript"
     pause; exit 1
 }
 

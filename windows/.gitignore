@@ -1,0 +1,6 @@
+# State and reports written at runtime
+*.log
+*.tmp
+reports/
+grades.csv
+config.json
