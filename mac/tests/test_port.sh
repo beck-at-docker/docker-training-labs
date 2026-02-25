@@ -61,19 +61,9 @@ main() {
     generate_report "Port_Conflicts_Scenario"
 
     score=$(calculate_score)
-    echo ""
     # Parsed by check_lab() in troubleshootmaclab. Format must stay: "Score: <n>%"
+    echo ""
     echo "Score: $score%"
-
-    if [ $score -ge 90 ]; then
-        echo "Grade: A - Excellent port management!"
-    elif [ $score -ge 80 ]; then
-        echo "Grade: B - Good troubleshooting"
-    elif [ $score -ge 70 ]; then
-        echo "Grade: C - Passing"
-    else
-        echo "Grade: F - Review port conflict resolution"
-    fi
 }
 
 main "$@"
