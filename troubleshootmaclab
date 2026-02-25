@@ -316,11 +316,13 @@ check_lab() {
     local scenario_lower=$(echo "$current_scenario" | tr '[:upper:]' '[:lower:]')
     local test_script="$INSTALL_DIR/tests/test_${scenario_lower}.sh"
     local test_output=$(mktemp)
-    
-    if ! bash "$test_script" fixed > "$test_output" 2>&1; then
+    # Ensure the temp file is removed even if we exit early or the user chooses
+    # to start another lab (which calls main(), which only exits via exit 0).
+    trap "rm -f '$test_output'" EXIT
+
+    if ! bash "$test_script" > "$test_output" 2>&1; then
         echo -e "${RED}Test script failed to run${NC}"
         cat "$test_output"
-        rm "$test_output"
         exit 1
     fi
     
@@ -409,8 +411,6 @@ check_lab() {
         echo "  troubleshootmaclab --report"
         echo ""
     fi
-    
-    rm "$test_output"
 }
 
 # Show help
@@ -498,7 +498,7 @@ show_report_card() {
     echo -e "==========================================${NC}"
     echo ""
     
-    if [ ! -f "$GRADES_FILE" ] || [ $(wc -l < "$GRADES_FILE") -le 1 ]; then
+    if [ ! -f "$GRADES_FILE" ] || [ "$(wc -l < "$GRADES_FILE")" -le 1 ]; then
         echo "No labs completed yet."
         echo ""
         echo "Start your first lab with:"
