@@ -1,5 +1,10 @@
 #!/bin/bash
 # lib/grading.sh - Grade recording functions
+#
+# Grades are stored as rows in $GRADES_FILE (grades.csv). The header row
+# is written by install.sh; this function appends one row per lab attempt.
+# Multiple attempts at the same lab are all kept - show_report_card uses
+# the last recorded score for each scenario when building the display.
 
 # Append a trainee's lab result to the grades CSV
 record_grade() {
