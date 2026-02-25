@@ -172,32 +172,29 @@ show_lab_instructions() {
     case $lab in
         DNS)
             cat << 'EOF'
-Problem: Containers cannot resolve external hostnames
+Problem: docker pull and registry access fail with DNS errors
 
-Your Docker Desktop containers are unable to access external
-resources. Image pulls fail, and containers can't reach the
-internet even though your Mac can.
+Something is wrong with how Docker resolves external hostnames.
+Image pulls are failing, but your Mac's own DNS works fine.
+Here's the twist: nslookup inside containers may still work.
 
 Symptoms you should observe:
-- docker pull commands fail with DNS errors
-- Containers can't ping google.com by name
-- nslookup inside containers fails
+- docker pull fails with a DNS lookup error
+- Error messages reference a nameserver or connection failure
 - Host machine DNS works fine
+- docker run --rm alpine:latest nslookup google.com may succeed
+
+That last point is a clue. Why would the daemon fail when
+containers appear to resolve just fine?
 
 Diagnostic Commands to Try:
-- docker run --rm alpine:latest nslookup google.com
-- docker run --rm alpine:latest ping -c 3 8.8.8.8
+- docker pull hello-world
 - docker info | grep -i dns
 - cat ~/.docker/daemon.json
+- docker run --rm alpine:latest nslookup google.com
 
-If the above look fine, the problem may be at the network layer.
-Inspect what is happening to DNS traffic inside the Docker VM:
-
-  docker run --rm --privileged --pid=host alpine:latest \
-    nsenter -t 1 -m -u -n -i sh -c 'iptables -L OUTPUT -n'
-
-Note: Restarting Docker Desktop will also restore DNS as a last
-resort, but try to find and fix the root cause first.
+Once you find and fix the configuration, restart Docker Desktop
+for the change to take effect.
 EOF
             ;;
         PORT)
