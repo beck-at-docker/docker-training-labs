@@ -68,11 +68,11 @@ show_main_menu() {
         echo ""
         echo "1. Container Connections"
         echo ""
-        echo "2. Port Binding Conflicts"
+        echo "2. Port Problems"
         echo ""
-        echo "3. Bridge Network Corruption"
+        echo "3. Broken Networking"
         echo ""
-        echo "4. Proxy Configuration Issues"
+        echo "4. Pull Problems"
         echo ""
         echo "5. CHAOS MODE - All labs at once!"
         echo ""
@@ -536,9 +536,9 @@ show_report_card() {
     
     echo "Lab Scores:"
     echo "  DNS Resolution:      ${dns_score:-Not attempted}"
-    echo "  Port Conflicts:      ${port_score:-Not attempted}"
-    echo "  Bridge Network:      ${bridge_score:-Not attempted}"
-    echo "  Proxy Configuration: ${proxy_score:-Not attempted}"
+    echo "  Port Problems:       ${port_score:-Not attempted}"
+    echo "  Broken Networking:   ${bridge_score:-Not attempted}"
+    echo "  Pull Problems:       ${proxy_score:-Not attempted}"
     if [ -n "$chaos_score" ]; then
         echo "  CHAOS MODE:          $chaos_score"
     fi
