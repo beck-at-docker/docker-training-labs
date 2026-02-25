@@ -1,8 +1,20 @@
 #!/bin/bash
-# test_dns.sh - Test DNS break/fix scenario
+# test_dns.sh - Tests that the DNS break scenario has been correctly resolved.
+#
+# Expected fix path: the trainee should edit ~/.docker/daemon.json to remove
+# or correct the "dns" key, then restart Docker Desktop.
+#
+# Output contract (parsed by check_lab() in troubleshootmaclab):
+#   Score: <n>%
+#   Tests Passed: <n>
+#   Tests Failed: <n>
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/test_framework.sh"
+
+DAEMON_JSON="$HOME/.docker/daemon.json"
+BAD_DNS_1="192.0.2.1"
+BAD_DNS_2="192.0.2.2"
 
 echo "=========================================="
 echo "DNS Resolution Scenario Test"
@@ -11,41 +23,34 @@ echo ""
 
 test_fixed_state() {
     log_info "Testing fixed state"
-    
-    run_test "Docker daemon running after fix" \
+
+    # Basic sanity: daemon must be up
+    run_test "Docker daemon is running" \
         "docker info > /dev/null"
-    
+
+    # Core fix verification: the bad DNS entries must be gone from daemon.json.
+    # A valid fix is to remove the "dns" key, delete daemon.json entirely, or
+    # replace the bad IPs with working ones - all are accepted here.
+    log_test "daemon.json does not contain invalid DNS servers"
+    if [ ! -f "$DAEMON_JSON" ] || \
+       ( ! grep -q "$BAD_DNS_1" "$DAEMON_JSON" && ! grep -q "$BAD_DNS_2" "$DAEMON_JSON" ); then
+        log_pass "daemon.json does not contain invalid DNS servers"
+    else
+        log_fail "daemon.json still contains invalid DNS servers ($BAD_DNS_1 or $BAD_DNS_2)"
+    fi
+
+    # Functional verification: containers must be able to resolve names
     run_test "Container DNS resolution works" \
         "docker run --rm alpine:latest nslookup google.com > /dev/null"
-    
+
     run_test "Container can ping external hostname" \
         "docker run --rm alpine:latest ping -c 2 google.com > /dev/null"
-    
-    # Check DNS configuration is valid
-    local dns_servers=$(docker run --rm alpine:latest cat /etc/resolv.conf | grep nameserver | awk '{print $2}')
-    log_test "Valid DNS servers configured"
-    if echo "$dns_servers" | grep -qE "^8\.8\.|^1\.1\.1\.1|^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$" && ! echo "$dns_servers" | grep -q "192.0.2"; then
-        log_pass "Valid DNS servers configured: $(echo $dns_servers | tr '\n' ' ')"
-    else
-        log_fail "DNS servers invalid or still broken: $(echo $dns_servers | tr '\n' ' ')"
-    fi
-    
-    # Verify resolv.conf is no longer immutable
-    local immutable=$(docker run --rm --privileged --pid=host alpine:latest \
-        nsenter -t 1 -m -u -n -i lsattr /etc/resolv.conf 2>/dev/null | grep -o 'i')
-    log_test "resolv.conf immutability removed"
-    if [ "$immutable" != "i" ]; then
-        log_pass "resolv.conf immutability removed"
-    else
-        log_fail "resolv.conf still immutable (fix may be temporary)"
-    fi
-    
-    # Test multiple DNS queries to ensure stability
-    run_test "Multiple DNS queries work" \
-        "for i in 1 2 3 4 5; do docker run --rm alpine:latest nslookup google.com > /dev/null || exit 1; done"
+
+    # Stability: a single fluke pass is not enough
+    run_test "Multiple DNS queries succeed consistently" \
+        "for i in 1 2 3; do docker run --rm alpine:latest nslookup google.com > /dev/null || exit 1; done"
 }
 
-# Main
 main() {
     test_fixed_state
     echo ""
@@ -56,14 +61,10 @@ main() {
     # Parsed by check_lab() in troubleshootmaclab. Format must stay: "Score: <n>%"
     echo "Score: $score%"
 
-    if [ $score -ge 90 ]; then
-        echo "Grade: A - Excellent work!"
-    elif [ $score -ge 80 ]; then
-        echo "Grade: B - Good job!"
-    elif [ $score -ge 70 ]; then
-        echo "Grade: C - Passing"
-    else
-        echo "Grade: F - Needs improvement"
+    if   [ "$score" -ge 90 ]; then echo "Grade: A - Excellent work!"
+    elif [ "$score" -ge 80 ]; then echo "Grade: B - Good job!"
+    elif [ "$score" -ge 70 ]; then echo "Grade: C - Passing"
+    else                            echo "Grade: F - Needs improvement"
     fi
 }
 

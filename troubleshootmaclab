@@ -179,18 +179,18 @@ resources. Image pulls fail, and containers can't reach the
 internet even though your Mac can.
 
 Symptoms you should observe:
-- `docker pull` commands fail
-- Containers can't ping google.com
-- `nslookup` inside containers fails
+- docker pull commands fail with DNS errors
+- Containers can't ping google.com by name
+- nslookup inside containers fails
 - Host machine DNS works fine
 
 Diagnostic Commands to Try:
 - docker run --rm alpine:latest nslookup google.com
-- docker run --rm alpine:latest cat /etc/resolv.conf
 - docker run --rm alpine:latest ping -c 3 8.8.8.8
 - docker info | grep -i dns
+- cat ~/.docker/daemon.json
 
-Fix it using any method you know!
+Fix it, then restart Docker Desktop for the fix to take effect.
 EOF
             ;;
         PORT)
