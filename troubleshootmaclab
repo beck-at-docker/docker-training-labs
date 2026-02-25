@@ -64,7 +64,7 @@ show_main_menu() {
     else
         echo "Select a training lab:"
         echo ""
-        echo "1. DNS Resolution Failure"
+        echo "1. Container Connections"
         echo -e "   ${DIM}Difficulty: ★★☆☆☆ | Time: 15-20 min${NC}"
         echo -e "   ${DIM}Learn: Container networking, DNS troubleshooting${NC}"
         echo ""
