@@ -44,8 +44,6 @@ function Show-MainMenu {
         Write-Host "Select a training lab:"
         Write-Host ""
         Write-Host "1. Container Connections"
-        Write-Dim   "   Difficulty: ** | Time: 15-20 min"
-        Write-Dim   "   Learn: Container networking, DNS troubleshooting"
         Write-Host ""
         Write-Host "2. View my report card"
         Write-Host "0. Exit"
