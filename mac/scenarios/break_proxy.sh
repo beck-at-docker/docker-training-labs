@@ -15,9 +15,7 @@ mkdir -p "$HOME/.docker"
 # Backup existing config with timestamp (consistent with shell RC backup)
 if [ -f "$DOCKER_CONFIG" ]; then
     cp "$DOCKER_CONFIG" "${DOCKER_CONFIG}.backup-${BACKUP_TIMESTAMP}"
-    DAEMON_BACKUP_CREATED="yes"
-else
-    DAEMON_BACKUP_CREATED="no"
+    DAEMON_BACKUP_CREATED=1
 fi
 
 # Write broken proxy config
@@ -46,9 +44,7 @@ fi
 # Backup the RC file
 if [ -f "$SHELL_RC" ]; then
     cp "$SHELL_RC" "${SHELL_RC}.backup-${BACKUP_TIMESTAMP}"
-    SHELL_BACKUP_CREATED="yes"
-else
-    SHELL_BACKUP_CREATED="no"
+    SHELL_BACKUP_CREATED=1
 fi
 
 # Add broken proxy settings (with marker for easy removal)
@@ -63,23 +59,23 @@ export NO_PROXY=
 EOF
 
 echo ""
-echo "⚠️  IMPORTANT: You must restart Docker Desktop for daemon.json changes to take effect!"
-echo "⚠️  You must also restart your terminal or run: source $SHELL_RC"
+echo "IMPORTANT: You must restart Docker Desktop for daemon.json changes to take effect!"
+echo "You must also restart your terminal or run: source $SHELL_RC"
 echo ""
 echo "To restart Docker Desktop:"
 echo "  1. Click the Docker whale icon in your menu bar"
 echo "  2. Select 'Restart'"
 echo "  3. Wait for Docker Desktop to fully restart"
 echo ""
-echo "✅ Proxy configuration broken in:"
+echo "Proxy configuration broken in:"
 echo "   - $DOCKER_CONFIG (requires Docker restart)"
 echo "   - $SHELL_RC (requires terminal restart)"
 echo ""
 
-if [ "$DAEMON_BACKUP_CREATED" = "yes" ] || [ "$SHELL_BACKUP_CREATED" = "yes" ]; then
+if [ -n "$DAEMON_BACKUP_CREATED" ] || [ -n "$SHELL_BACKUP_CREATED" ]; then
     echo "Backups saved:"
-    [ "$DAEMON_BACKUP_CREATED" = "yes" ] && echo "   - ${DOCKER_CONFIG}.backup-${BACKUP_TIMESTAMP}"
-    [ "$SHELL_BACKUP_CREATED" = "yes" ] && echo "   - ${SHELL_RC}.backup-${BACKUP_TIMESTAMP}"
+    [ -n "$DAEMON_BACKUP_CREATED" ] && echo "   - ${DOCKER_CONFIG}.backup-${BACKUP_TIMESTAMP}"
+    [ -n "$SHELL_BACKUP_CREATED" ] && echo "   - ${SHELL_RC}.backup-${BACKUP_TIMESTAMP}"
     echo ""
 fi
 

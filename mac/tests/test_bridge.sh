@@ -24,11 +24,20 @@ test_fixed_state() {
     # Test container-to-container communication
     docker run -d --name test-web-fixed nginx:alpine > /dev/null 2>&1
     sleep 2
-    local web_ip=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' test-web-fixed)
-    
-    run_test "Container-to-container communication restored" \
-        "docker run --rm alpine:latest ping -c 2 $web_ip > /dev/null"
-    
+    local web_ip
+    web_ip=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' test-web-fixed 2>/dev/null)
+
+    log_test "Container-to-container communication restored"
+    if [ -n "$web_ip" ]; then
+        if docker run --rm alpine:latest ping -c 2 "$web_ip" > /dev/null 2>&1; then
+            log_pass "Container-to-container communication restored"
+        else
+            log_fail "Container-to-container ping failed (target: $web_ip)"
+        fi
+    else
+        log_fail "Could not get container IP - container may not have started"
+    fi
+
     docker rm -f test-web-fixed > /dev/null 2>&1
     
     # Verify no subnet conflicts remain
@@ -79,6 +88,7 @@ main() {
 
     score=$(calculate_score)
     echo ""
+    # Parsed by check_lab() in troubleshootmaclab. Format must stay: "Score: <n>%"
     echo "Score: $score%"
 
     if [ $score -ge 90 ]; then

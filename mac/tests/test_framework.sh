@@ -19,17 +19,17 @@ TESTS_FAILED=0
 # Logging functions
 log_test() {
     echo -e "${BLUE}[TEST]${NC} $1"
-    ((TESTS_RUN++))
+    TESTS_RUN=$((TESTS_RUN + 1))
 }
 
 log_pass() {
     echo -e "${GREEN}[PASS]${NC} $1"
-    ((TESTS_PASSED++))
+    TESTS_PASSED=$((TESTS_PASSED + 1))
 }
 
 log_fail() {
     echo -e "${RED}[FAIL]${NC} $1"
-    ((TESTS_FAILED++))
+    TESTS_FAILED=$((TESTS_FAILED + 1))
 }
 
 log_warn() {
@@ -89,6 +89,8 @@ generate_report() {
         echo "=========================================="
         echo ""
         echo "Tests Run:    $TESTS_RUN"
+        # These two lines are parsed by check_lab() in troubleshootmaclab.
+        # Format must stay exactly: "Tests Passed: <n>" and "Tests Failed: <n>"
         echo "Tests Passed: $TESTS_PASSED"
         echo "Tests Failed: $TESTS_FAILED"
         echo ""

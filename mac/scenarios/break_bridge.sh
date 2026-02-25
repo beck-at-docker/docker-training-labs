@@ -38,5 +38,5 @@ docker run --rm --privileged --pid=host alpine:latest nsenter -t 1 -m -u -n -i s
 docker run -d --name broken-web nginx:alpine
 docker run -d --name broken-app alpine:latest sleep 3600
 
-echo "✅ Bridge network corrupted"
+echo "Bridge network corrupted"
 echo "Symptoms: Containers can't reach each other or internet"
