@@ -172,20 +172,22 @@ show_lab_instructions() {
     case $lab in
         DNS)
             cat << 'EOF'
-Problem: docker pull and registry access fail with DNS errors
+Problem: docker pull fails with a DNS write error
 
-Something is wrong with how Docker resolves external hostnames.
-Image pulls are failing, but your Mac's own DNS works fine.
-Here's the twist: nslookup inside containers may still work.
+The Docker daemon cannot resolve external hostnames. Image pulls
+fail immediately with an error like:
+
+  write udp ...: write: operation not permitted
+
+Your Mac's DNS works fine. Interestingly, nslookup inside a
+container may also appear to work. The daemon and containers
+use different DNS paths - that discrepancy is your first clue.
 
 Symptoms you should observe:
-- docker pull fails with a DNS lookup error
-- Error messages reference a nameserver or connection failure
+- docker pull fails with "write: operation not permitted"
+- Error references a DNS lookup on an internal IP (e.g. 192.168.65.x)
 - Host machine DNS works fine
 - docker run --rm alpine:latest nslookup google.com may succeed
-
-That last point is a clue. Why would the daemon fail when
-containers appear to resolve just fine?
 
 Diagnostic Commands to Try:
 - docker pull hello-world
@@ -193,8 +195,15 @@ Diagnostic Commands to Try:
 - cat ~/.docker/daemon.json
 - docker run --rm alpine:latest nslookup google.com
 
-Once you find and fix the configuration, restart Docker Desktop
-for the change to take effect.
+If config looks clean, think about what sits between the daemon
+and the network. Check whether traffic is being blocked at a
+lower level inside the Docker VM:
+
+  docker run --rm --privileged --pid=host alpine:latest \
+    nsenter -t 1 -m -u -n -i sh -c 'iptables -L OUTPUT -n -v'
+
+Restarting Docker Desktop will clear the problem as a last
+resort, but try to find and remove the root cause first.
 EOF
             ;;
         PORT)
