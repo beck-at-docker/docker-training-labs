@@ -3,7 +3,7 @@
 
 set -e
 
-echo "🔧 Breaking Docker Desktop networking..."
+echo "Breaking Docker Desktop networking..."
 
 # Verify Docker Desktop is running
 if ! docker info &>/dev/null; then
@@ -24,5 +24,5 @@ docker run --rm --privileged --pid=host alpine:latest nsenter -t 1 -m -u -n -i s
     chattr +i /etc/resolv.conf 2>/dev/null || true
 '
 
-echo "✅ Docker networking broken - DNS resolution will fail"
+echo "Docker networking broken - DNS resolution will fail"
 echo "Symptoms: Containers cannot resolve external hostnames"
