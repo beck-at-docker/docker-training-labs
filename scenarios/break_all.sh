@@ -5,9 +5,9 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀"
+echo "=========================================="
 echo "    CHAOS MODE ACTIVATED"
-echo "💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀"
+echo "=========================================="
 echo ""
 echo "Breaking ALL systems..."
 echo ""
@@ -29,7 +29,7 @@ echo "4/4 Breaking proxy configuration..."
 bash "$SCRIPT_DIR/break_proxy.sh"
 echo ""
 
-echo "💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀"
+echo "=========================================="
 echo " ALL SYSTEMS BROKEN"
 echo " Good luck fixing this mess!"
-echo "💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀💀"
+echo "=========================================="

@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/test_framework.sh"
 
 echo "=========================================="
-echo "💀 CHAOS MODE Scenario Test 💀"
+echo "CHAOS MODE Scenario Test"
 echo "=========================================="
 echo ""
 echo "Testing all systems simultaneously..."
@@ -112,7 +112,7 @@ main() {
     echo ""
 
     if [ $score -ge 95 ]; then
-        echo "Grade: A+ - LEGENDARY! You conquered CHAOS MODE! 💀🏆"
+        echo "Grade: A+ - LEGENDARY! You conquered CHAOS MODE!"
         echo "You've demonstrated master-level Docker Desktop troubleshooting."
     elif [ $score -ge 90 ]; then
         echo "Grade: A - Excellent work!"

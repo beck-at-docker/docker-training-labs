@@ -54,7 +54,7 @@ show_main_menu() {
     local current_scenario=$(get_current_scenario)
     
     if [ -n "$current_scenario" ] && [ "$current_scenario" != "null" ]; then
-        echo -e "${YELLOW}⚠️  You currently have an active lab: $current_scenario${NC}"
+        echo -e "${YELLOW}WARNING: You currently have an active lab: $current_scenario${NC}"
         echo ""
         echo "1. Continue working on current lab"
         echo "2. Submit current lab for grading"
@@ -72,7 +72,7 @@ show_main_menu() {
         echo ""
         echo "4. Proxy Configuration Issues"
         echo ""
-        echo "5. 💀 CHAOS MODE - All labs at once!"
+        echo "5. CHAOS MODE - All labs at once!"
         echo ""
         echo "6. View my report card"
         echo "0. Exit"
@@ -140,7 +140,7 @@ start_lab() {
     set_scenario_start_time "$(date +%s)"
     
     show_banner
-    echo -e "${GREEN}✅ Lab Started: $lab_name${NC}"
+    echo -e "${GREEN}Lab Started: $lab_name${NC}"
     echo ""
     echo -e "${BLUE}=========================================="
     echo "Your Mission"
@@ -159,7 +159,7 @@ start_lab() {
     echo "To see these instructions again, run:"
     echo "  troubleshootmaclab --help"
     echo ""
-    echo "Good luck! 🚀"
+    echo "Good luck!"
     echo ""
 }
 
@@ -170,7 +170,7 @@ show_lab_instructions() {
     case $lab in
         DNS)
             cat << 'EOF'
-🔍 Problem: Containers cannot resolve external hostnames
+Problem: Containers cannot resolve external hostnames
 
 Your Docker Desktop containers are unable to access external
 resources. Image pulls fail, and containers can't reach the
@@ -193,7 +193,7 @@ EOF
             ;;
         PORT)
             cat << 'EOF'
-🔍 Problem: Containers fail to bind to common ports
+Problem: Containers fail to bind to common ports
 
 When you try to start containers that need standard ports
 (80, 443, 3306, 5432, 8080), you get "address already in use"
@@ -215,7 +215,7 @@ EOF
             ;;
         BRIDGE)
             cat << 'EOF'
-🔍 Problem: Container networking is broken
+Problem: Container networking is broken
 
 Your containers start successfully but have no network
 connectivity. They can't reach the internet or each other,
@@ -242,7 +242,7 @@ EOF
             ;;
         PROXY)
             cat << 'EOF'
-🔍 Problem: Docker cannot reach external registries
+Problem: Docker cannot reach external registries
 
 Your Docker Desktop cannot pull images or access external
 resources. This is likely due to proxy misconfiguration.
@@ -269,7 +269,7 @@ EOF
             ;;
         CHAOS)
             cat << 'EOF'
-🔍 Problem: EVERYTHING IS BROKEN
+Problem: EVERYTHING IS BROKEN
 
 Multiple systems have failed simultaneously. You'll need to
 diagnose and fix multiple issues:
@@ -289,7 +289,7 @@ Tip: Fix issues in order of dependency:
 3. Proxy issues (affects registries)
 4. Port conflicts (affects services)
 
-Good luck. You'll need it. 💀
+Good luck. You'll need it.
 EOF
             ;;
     esac
@@ -363,19 +363,19 @@ check_lab() {
     echo ""
     
     if [ $score -ge 90 ]; then
-        echo -e "${GREEN}⭐⭐⭐ Excellent work!${NC}"
+        echo -e "${GREEN}Excellent work!${NC}"
         echo "You demonstrated strong troubleshooting skills."
         echo "You're ready for production support on this topic."
     elif [ $score -ge 80 ]; then
-        echo -e "${GREEN}⭐⭐ Good job!${NC}"
+        echo -e "${GREEN}Good job!${NC}"
         echo "You fixed the main issues successfully."
         echo "Review the failed tests to improve further."
     elif [ $score -ge 70 ]; then
-        echo -e "${YELLOW}⭐ Passing${NC}"
+        echo -e "${YELLOW}Passing${NC}"
         echo "You got the basics, but missed some key points."
         echo "Consider trying this lab again for better mastery."
     else
-        echo -e "${RED}❌ Needs Improvement${NC}"
+        echo -e "${RED}Needs Improvement${NC}"
         echo "The issue wasn't fully resolved."
         echo "Review the diagnostic steps and try again."
     fi
@@ -531,7 +531,7 @@ show_report_card() {
     echo "  Bridge Network:      ${bridge_score:-Not attempted}"
     echo "  Proxy Configuration: ${proxy_score:-Not attempted}"
     if [ -n "$chaos_score" ]; then
-        echo "  💀 CHAOS MODE:       $chaos_score"
+        echo "  CHAOS MODE:          $chaos_score"
     fi
     echo ""
     
@@ -541,7 +541,7 @@ show_report_card() {
         echo ""
         
         if [ $avg_score -ge 90 ]; then
-            echo -e "Grade: ${GREEN}A - Excellent!${NC} 🎉"
+            echo -e "Grade: ${GREEN}A - Excellent!${NC}"
             echo "You're ready for production Docker Desktop support."
         elif [ $avg_score -ge 80 ]; then
             echo -e "Grade: ${GREEN}B - Good work!${NC}"
