@@ -87,19 +87,9 @@ main() {
     generate_report "Bridge_Network_Scenario"
 
     score=$(calculate_score)
-    echo ""
     # Parsed by check_lab() in troubleshootmaclab. Format must stay: "Score: <n>%"
+    echo ""
     echo "Score: $score%"
-
-    if [ $score -ge 90 ]; then
-        echo "Grade: A - Expert network troubleshooting!"
-    elif [ $score -ge 80 ]; then
-        echo "Grade: B - Strong network skills"
-    elif [ $score -ge 70 ]; then
-        echo "Grade: C - Passing"
-    else
-        echo "Grade: F - Review network fundamentals"
-    fi
 }
 
 main "$@"
