@@ -1,56 +1,41 @@
-# break_dns.ps1 - Corrupts DNS resolution in Docker Desktop (WSL2 backend)
+# break_dns.ps1 - Breaks Docker daemon DNS resolution by injecting iptables
+# DROP rules for port 53 into the Docker Desktop VM's OUTPUT chain via nsenter.
+#
+# The daemon process runs inside the VM and uses the VM's network stack for
+# its own DNS lookups (e.g. registry resolution during docker pull). Dropping
+# port 53 traffic on OUTPUT prevents the daemon from resolving any external
+# hostnames, producing errors like:
+#
+#   lookup http.docker.internal on 192.168.65.x:53:
+#   write udp ...: write: operation not permitted
+#
+# The VM is ephemeral - iptables rules do not survive a Docker Desktop restart.
+# Fix path: remove the DROP rules via nsenter (full marks), or restart Docker
+# Desktop as a last resort.
 
-Write-Host "Breaking Docker Desktop networking..."
+Write-Host "Breaking Docker Desktop DNS resolution..."
 
 # Verify Docker Desktop is running
 docker info 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "Error: Docker Desktop is not running or WSL2 backend is not available"
+    Write-Host "Error: Docker Desktop is not running"
     exit 1
 }
 
-# Verify WSL2 backend
-$dockerInfo = docker info 2>&1 | Out-String
-if ($dockerInfo -notmatch "WSL") {
-    Write-Host "Warning: This lab targets the WSL2 backend. Your backend may differ."
-    Write-Host "         Proceed with caution."
-    Write-Host ""
-}
+# Inject DROP rules for port 53 (UDP and TCP) into the VM's OUTPUT chain.
+# Use a semicolon-delimited string - PS5.1 argument passing to external
+# commands is unreliable with newlines in strings.
+$iptablesCmd = "iptables -I OUTPUT -p udp --dport 53 -j DROP; " +
+               "iptables -I OUTPUT -p tcp --dport 53 -j DROP"
 
-Write-Host "Blocking DNS queries at network level inside WSL2 VM..."
-
-# Use semicolons rather than a multi-line heredoc - PS5.1 argument passing
-# to external commands is unreliable with newlines in strings.
-$iptablesCmd = "iptables-save > /tmp/iptables.dns-backup 2>/dev/null || true; " +
-               "iptables -I OUTPUT -p udp --dport 53 -j DROP; " +
-               "iptables -I OUTPUT -p tcp --dport 53 -j DROP; " +
-               "iptables -I FORWARD -p udp --dport 53 -j DROP; " +
-               "iptables -I FORWARD -p tcp --dport 53 -j DROP; " +
-               "echo 'iptables rules applied'"
-
-$result = docker run --rm --privileged --pid=host alpine:latest `
-    nsenter -t 1 -m -u -n -i sh -c $iptablesCmd 2>&1
+docker run --rm --privileged --pid=host alpine:latest `
+    nsenter -t 1 -m -u -n -i sh -c $iptablesCmd 2>&1 | Out-Null
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "Error: Failed to apply iptables rules"
-    Write-Host $result
-    exit 1
-}
-
-# Verify rules actually landed
-$verify = docker run --rm --privileged --pid=host alpine:latest `
-    nsenter -t 1 -m -u -n -i sh -c 'iptables -L OUTPUT -n' 2>&1 | Out-String
-if ($verify -notmatch "DROP") {
-    Write-Host "Error: iptables rules did not apply - OUTPUT chain has no DROP rules"
+    Write-Host "Error: Failed to apply iptables rules inside the VM"
     exit 1
 }
 
 Write-Host ""
-Write-Host "Docker networking broken - DNS resolution will fail inside containers"
-Write-Host ""
-Write-Host "Symptoms: Containers cannot resolve external hostnames"
-Write-Host ""
-Write-Host "Test it:"
-Write-Host "  docker run --rm alpine:latest nslookup google.com"
-Write-Host "  (should timeout or fail)"
-Write-Host ""
+Write-Host "Docker Desktop DNS resolution broken"
+Write-Host "Symptom: docker pull and registry access fail with DNS errors"

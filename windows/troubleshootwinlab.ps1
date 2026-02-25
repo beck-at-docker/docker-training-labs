@@ -43,9 +43,7 @@ function Show-MainMenu {
     } else {
         Write-Host "Select a training lab:"
         Write-Host ""
-        Write-Host "1. DNS Resolution Failure"
-        Write-Dim   "   Difficulty: ** | Time: 15-20 min"
-        Write-Dim   "   Learn: Container networking, DNS troubleshooting"
+        Write-Host "1. Container Connections"
         Write-Host ""
         Write-Host "2. View my report card"
         Write-Host "0. Exit"
@@ -61,26 +59,38 @@ function Show-LabInstructions {
     switch ($Lab) {
         "DNS" {
             Write-Host @"
-Problem: Containers cannot resolve external hostnames
+Problem: docker pull fails with a DNS write error
 
-Your Docker Desktop containers are unable to access external
-resources. Image pulls fail, and containers cannot reach the
-internet even though your Windows host can.
+The Docker daemon cannot resolve external hostnames. Image pulls
+fail immediately with an error like:
+
+  write udp ...: write: operation not permitted
+
+Your Windows host DNS works fine. Interestingly, nslookup inside
+a container may also appear to work. The daemon and containers
+use different DNS paths - that discrepancy is your first clue.
 
 Symptoms you should observe:
-  - docker pull commands fail with DNS errors
-  - Containers cannot ping google.com by name
-  - nslookup inside containers fails or times out
+  - docker pull fails with "write: operation not permitted"
+  - Error references a DNS lookup on an internal IP (e.g. 192.168.65.x)
   - Host machine DNS works fine
+  - docker run --rm alpine:latest nslookup google.com may succeed
 
 Diagnostic Commands to Try:
+  docker pull hello-world
+  docker info | Select-String dns
+  cat $env:USERPROFILE\.docker\daemon.json
   docker run --rm alpine:latest nslookup google.com
-  docker run --rm alpine:latest cat /etc/resolv.conf
-  docker run --rm alpine:latest ping -c 3 8.8.8.8
-  docker info
 
-Hint: The problem is below the Docker configuration layer.
-Think about what sits between containers and the network.
+If config looks clean, think about what sits between the daemon
+and the network. Check whether traffic is being blocked at a
+lower level inside the Docker VM:
+
+  docker run --rm --privileged --pid=host alpine:latest ``
+    nsenter -t 1 -m -u -n -i sh -c 'iptables -L OUTPUT -n -v'
+
+Restarting Docker Desktop will clear the problem as a last
+resort, but try to find and remove the root cause first.
 "@
         }
     }
@@ -213,8 +223,18 @@ function Check-Lab {
 
     Clear-CurrentScenario
 
+    # "Yes" returns to the caller so the interactive menu loop in Main()
+    # redraws naturally - no recursion needed. "No" exits.
     $again = Read-Host "Would you like to try another lab? (y/N)"
-    if ($again -match "^[yY]$") { Main }
+    if ($again -notmatch "^[yY]$") {
+        Write-Host ""
+        Write-Host "Training session complete. Great work!"
+        Write-Host ""
+        Write-Host "To see your overall progress, run:"
+        Write-Host "  troubleshootwinlab --report"
+        Write-Host ""
+        exit 0
+    }
 }
 
 # ------------------------------------------------------------------
@@ -355,8 +375,10 @@ function Reset-Lab {
 # ------------------------------------------------------------------
 function Main {
     switch ($Action) {
-        "--check"   { Check-Lab;      exit 0 }
-        "--submit"  { Check-Lab;      exit 0 }
+        # After Check-Lab returns (user chose to try another lab),
+        # fall through to the interactive menu loop below.
+        "--check"   { Check-Lab }
+        "--submit"  { Check-Lab }
         "--help"    { Show-Help;      exit 0 }
         "-h"        { Show-Help;      exit 0 }
         "--status"  { Show-Status;    exit 0 }

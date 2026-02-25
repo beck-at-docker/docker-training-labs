@@ -1,4 +1,18 @@
-# test_dns.ps1 - Test DNS break/fix scenario
+# test_dns.ps1 - Validates that the DNS break scenario has been resolved.
+#
+# The break injects iptables DROP rules for port 53 into the Docker Desktop VM,
+# preventing the Docker daemon from resolving external hostnames. The symptom
+# is that docker pull fails with "write: operation not permitted" on a DNS
+# socket write.
+#
+# A complete fix requires removing the DROP rules from the VM's OUTPUT chain
+# via nsenter. Restarting Docker Desktop also clears the rules (ephemeral VM)
+# and is accepted as a valid last resort.
+#
+# Output contract (parsed by Check-Lab in troubleshootwinlab.ps1):
+#   Score: <n>%
+#   Tests Passed: <n>
+#   Tests Failed: <n>
 
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
 . "$SCRIPT_DIR\test_framework.ps1"
@@ -11,47 +25,27 @@ Write-Host ""
 function Test-FixedState {
     Log-Info "Testing fixed state"
 
-    Run-Test "Docker daemon running after fix" {
-        docker info 2>&1 | Out-Null
+    # Primary functional test: the daemon must be able to resolve registry
+    # hostnames. This is the operation the break actually broke.
+    Run-Test "docker pull succeeds (daemon DNS is working)" {
+        docker pull hello-world 2>&1 | Out-Null
     }
 
-    Run-Test "Container DNS resolution works" {
-        docker run --rm alpine:latest nslookup google.com 2>&1 | Out-Null
+    # Stability: confirm it is not a one-off success
+    Run-Test "docker pull succeeds a second time" {
+        docker pull alpine:latest 2>&1 | Out-Null
     }
 
-    Run-Test "Container can ping external hostname" {
-        docker run --rm alpine:latest ping -c 2 google.com 2>&1 | Out-Null
-    }
-
-    # Check that no DROP rules remain for port 53 in OUTPUT chain
-    Log-Test "No blocking iptables rules for DNS in OUTPUT chain"
-    $rules = docker run --rm --privileged --pid=host alpine:latest `
-        nsenter -t 1 -m -u -n -i sh -c 'iptables -L OUTPUT -n' 2>&1 | Out-String
-    if ($rules -match "DROP.*dpt:53") {
-        Log-Fail "DROP rules for port 53 still present in OUTPUT chain"
+    # Root cause check: verify the DROP rules have been removed from OUTPUT.
+    Log-Test "iptables DROP rules for port 53 have been removed"
+    $remainingRules = docker run --rm --privileged --pid=host alpine:latest `
+        nsenter -t 1 -m -u -n -i sh -c `
+        'iptables -L OUTPUT -n 2>/dev/null | grep -c "dpt:53" || true' 2>&1 | Out-String
+    $remainingRules = $remainingRules.Trim()
+    if ($remainingRules -eq "0" -or $remainingRules -eq "") {
+        Log-Pass "iptables DROP rules for port 53 have been removed"
     } else {
-        Log-Pass "No DROP rules blocking DNS in OUTPUT chain"
-    }
-
-    # Check FORWARD chain too
-    Log-Test "No blocking iptables rules for DNS in FORWARD chain"
-    $fwdRules = docker run --rm --privileged --pid=host alpine:latest `
-        nsenter -t 1 -m -u -n -i sh -c 'iptables -L FORWARD -n' 2>&1 | Out-String
-    if ($fwdRules -match "DROP.*dpt:53") {
-        Log-Fail "DROP rules for port 53 still present in FORWARD chain"
-    } else {
-        Log-Pass "No DROP rules blocking DNS in FORWARD chain"
-    }
-
-    # Stability check - use throw instead of exit so Run-Test catches the failure
-    # cleanly without killing the test process
-    Run-Test "Multiple DNS queries work (stability check)" {
-        $failed = $false
-        1..5 | ForEach-Object {
-            docker run --rm alpine:latest nslookup google.com 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) { $failed = $true }
-        }
-        if ($failed) { throw "One or more DNS queries failed" }
+        Log-Fail "iptables DROP rules for port 53 are still present ($remainingRules rule(s) found)"
     }
 }
 
@@ -61,15 +55,9 @@ Write-Host ""
 $reportFile = Generate-Report "DNS_Scenario"
 
 $score = Calculate-Score
-Write-Host ""
-Write-Host "Score: $score%"
 
-if ($score -ge 90)    { Write-Host "Grade: A - Excellent work!" -ForegroundColor Green }
-elseif ($score -ge 80){ Write-Host "Grade: B - Good job!" -ForegroundColor Green }
-elseif ($score -ge 70){ Write-Host "Grade: C - Passing" -ForegroundColor Yellow }
-else                  { Write-Host "Grade: F - Needs improvement" -ForegroundColor Red }
-
-# Structured output for Check-Lab to parse
+# Parsed by Check-Lab in troubleshootwinlab.ps1.
+# Format must stay exactly: "Score: <n>%", "Tests Passed: <n>", "Tests Failed: <n>"
 Write-Host ""
 Write-Host "Score: $score%"
 Write-Host "Tests Passed: $script:TESTS_PASSED"

@@ -15,7 +15,7 @@ function Set-CurrentScenario {
         if (Test-Path $CONFIG_FILE) {
             $data = Get-Content $CONFIG_FILE -Raw | ConvertFrom-Json
         } else {
-            $data = New-Object PSObject
+            $data = [PSCustomObject]@{}
         }
         $data | Add-Member -MemberType NoteProperty -Name current_scenario -Value $Scenario -Force
         $data | ConvertTo-Json | Set-Content $CONFIG_FILE -Encoding UTF8
@@ -30,7 +30,7 @@ function Clear-CurrentScenario {
         if (Test-Path $CONFIG_FILE) {
             $data = Get-Content $CONFIG_FILE -Raw | ConvertFrom-Json
         } else {
-            $data = New-Object PSObject
+            $data = [PSCustomObject]@{}
         }
         $data | Add-Member -MemberType NoteProperty -Name current_scenario    -Value $null -Force
         $data | Add-Member -MemberType NoteProperty -Name scenario_start_time -Value $null -Force
@@ -55,7 +55,7 @@ function Set-ScenarioStartTime {
         if (Test-Path $CONFIG_FILE) {
             $data = Get-Content $CONFIG_FILE -Raw | ConvertFrom-Json
         } else {
-            $data = New-Object PSObject
+            $data = [PSCustomObject]@{}
         }
         $data | Add-Member -MemberType NoteProperty -Name scenario_start_time -Value $Timestamp -Force
         $data | ConvertTo-Json | Set-Content $CONFIG_FILE -Encoding UTF8
