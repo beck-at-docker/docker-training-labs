@@ -1,7 +1,9 @@
 #!/bin/bash
 # troubleshootmaclab - Main training lab CLI
 
-set -e
+# set -e is intentionally omitted. This is an interactive script with a menu
+# loop and functions that legitimately return non-zero (e.g. user cancels a
+# prompt). Errors are handled explicitly at each call site instead.
 
 # Configuration
 INSTALL_DIR="/usr/local/lib/docker-training-labs"
