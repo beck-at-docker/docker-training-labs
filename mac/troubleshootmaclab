@@ -316,13 +316,11 @@ check_lab() {
     local scenario_lower=$(echo "$current_scenario" | tr '[:upper:]' '[:lower:]')
     local test_script="$INSTALL_DIR/tests/test_${scenario_lower}.sh"
     local test_output=$(mktemp)
-    # Ensure the temp file is removed even if we exit early or the user chooses
-    # to start another lab (which calls main(), which only exits via exit 0).
-    trap "rm -f '$test_output'" EXIT
 
     if ! bash "$test_script" > "$test_output" 2>&1; then
         echo -e "${RED}Test script failed to run${NC}"
         cat "$test_output"
+        rm -f "$test_output"
         exit 1
     fi
     
@@ -396,20 +394,24 @@ check_lab() {
     
     # Clear the current scenario
     clear_current_scenario
-    
-    # Offer to continue
+
+    # Clean up temp file now - before the prompt, since the prompt may exit
+    # the process or return to the caller's loop, both of which are fine.
+    rm -f "$test_output"
+
+    # Offer to continue. "Yes" returns to the caller so the interactive menu
+    # loop in main() redraws naturally - no recursion needed. "No" exits.
     echo -e "${BLUE}==========================================${NC}"
     echo ""
     read -p "Would you like to try another lab? (y/N): " continue_training
-    if [ "$continue_training" = "y" ] || [ "$continue_training" = "Y" ]; then
-        main
-    else
+    if [ "$continue_training" != "y" ] && [ "$continue_training" != "Y" ]; then
         echo ""
         echo "Training session complete. Great work!"
         echo ""
         echo "To see your overall progress, run:"
         echo "  troubleshootmaclab --report"
         echo ""
+        exit 0
     fi
 }
 
@@ -626,8 +628,9 @@ main() {
     # Handle command line arguments
     case "${1:-}" in
         --check|--submit)
+            # After check_lab returns (user chose to try another lab),
+            # fall through to the interactive menu loop below.
             check_lab
-            exit 0
             ;;
         --help|-h)
             show_help
