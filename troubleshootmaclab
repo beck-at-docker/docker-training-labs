@@ -1,5 +1,40 @@
 #!/bin/bash
 # troubleshootmaclab - Main training lab CLI
+#
+# Architecture overview
+# ---------------------
+# This script is the single entry point trainees interact with. Everything
+# else is support infrastructure:
+#
+#   lib/colors.sh    - Color variables (RED, GREEN, YELLOW, BLUE, NC)
+#   lib/state.sh     - Read/write ~/.docker-training-labs/config.json
+#   lib/grading.sh   - Append rows to ~/.docker-training-labs/grades.csv
+#
+#   scenarios/break_<name>.sh  - Deliberately corrupt Docker Desktop
+#   tests/test_<name>.sh       - Verify the scenario has been fixed
+#   fixes/fix_<name>.sh        - Dev-only restore scripts (not for trainees)
+#
+# Lab lifecycle
+# -------------
+#   1. Trainee selects a lab from the menu (or passes a number to start_lab)
+#   2. start_lab runs scenarios/break_<name>.sh and records the scenario
+#      name and start timestamp in config.json via lib/state.sh
+#   3. Trainee diagnoses and fixes Docker Desktop manually
+#   4. --check runs tests/test_<name>.sh, captures its stdout, parses the
+#      structured footer, records the grade, and prints feedback
+#   5. config.json is cleared so a new lab can be started
+#
+# Output contract (tests/test_*.sh footer, parsed by check_lab)
+# -------------------------------------------------------------
+#   Score: <n>%
+#   Tests Passed: <n>    <- written by generate_report in test_framework.sh
+#   Tests Failed: <n>    <- written by generate_report in test_framework.sh
+#
+# Scenario name convention
+# ------------------------
+#   Lab names (DNS, PORT, BRIDGE, PROXY, CHAOS) are stored verbatim in
+#   config.json and lowercased at runtime to derive filenames:
+#     break_dns.sh / test_dns.sh, break_ports.sh / test_port.sh, etc.
 
 # set -e is intentionally omitted. This is an interactive script with a menu
 # loop and functions that legitimately return non-zero (e.g. user cancels a
@@ -84,7 +119,12 @@ show_main_menu() {
     echo -e "${BLUE}==========================================${NC}"
 }
 
-# Start a new lab
+# start_lab - Run a break scenario and record it as the active lab
+#
+# lab_name is the canonical scenario identifier. It is stored in config.json
+# and lowercased at runtime to derive both the break script and test script
+# filenames. Adding a new lab requires: a break_<lower>.sh, a test_<lower>.sh,
+# a new case here, and a menu entry in show_main_menu.
 start_lab() {
     local lab_number=$1
     local lab_name=""
@@ -92,23 +132,23 @@ start_lab() {
     
     case $lab_number in
         1)
-            lab_name="DNS"
+            lab_name="DNS"        # -> scenarios/break_dns.sh, tests/test_dns.sh
             break_script="$INSTALL_DIR/scenarios/break_dns.sh"
             ;;
         2)
-            lab_name="PORT"
+            lab_name="PORT"       # -> scenarios/break_ports.sh, tests/test_port.sh
             break_script="$INSTALL_DIR/scenarios/break_ports.sh"
             ;;
         3)
-            lab_name="BRIDGE"
+            lab_name="BRIDGE"     # -> scenarios/break_bridge.sh, tests/test_bridge.sh
             break_script="$INSTALL_DIR/scenarios/break_bridge.sh"
             ;;
         4)
-            lab_name="PROXY"
+            lab_name="PROXY"      # -> scenarios/break_proxy.sh, tests/test_proxy.sh
             break_script="$INSTALL_DIR/scenarios/break_proxy.sh"
             ;;
         5)
-            lab_name="CHAOS"
+            lab_name="CHAOS"      # -> scenarios/break_all.sh, tests/test_chaos.sh
             break_script="$INSTALL_DIR/scenarios/break_all.sh"
             ;;
         *)
@@ -310,7 +350,18 @@ EOF
     esac
 }
 
-# Check/test the current lab
+# check_lab - Run the test script for the active scenario and record a grade
+#
+# The test script is run in a subshell and all its stdout is captured to a
+# temp file. check_lab then:
+#   1. Parses the structured footer lines (Score/Tests Passed/Tests Failed)
+#   2. Displays the full test output to the trainee
+#   3. Copies the output to REPORTS_DIR as a permanent record
+#   4. Appends a grade row to grades.csv via record_grade
+#   5. Clears the active scenario from config.json
+#   6. Asks whether the trainee wants to try another lab
+#      - Yes: returns normally so main()'s while loop redraws the menu
+#      - No:  exits the process
 check_lab() {
     local current_scenario=$(get_current_scenario)
     
@@ -325,9 +376,12 @@ check_lab() {
     echo "Running diagnostic tests..."
     echo ""
     
-    # Run the appropriate test (Bash 3 compatible lowercase conversion)
+    # tr '[:upper:]' '[:lower:]' is used instead of ${var,,} for Bash 3 compatibility.
+    # The lowercased name maps directly to the test script filename.
     local scenario_lower=$(echo "$current_scenario" | tr '[:upper:]' '[:lower:]')
     local test_script="$INSTALL_DIR/tests/test_${scenario_lower}.sh"
+    # Capture all test output to a temp file so we can both display it and
+    # parse the structured footer lines without running the script twice.
     local test_output=$(mktemp)
 
     if ! bash "$test_script" > "$test_output" 2>&1; then
@@ -636,13 +690,19 @@ reset_lab() {
     fi
 }
 
-# Main function
-main() {
-    # Handle command line arguments
+# main - Entry point
+#
+# The menu has two distinct states:
+#   Active lab:   options to continue, submit, abandon, or view report
+#   No active lab: options to start a lab or view report
+# get_current_scenario is called once per loop iteration rather than once at
+# startup so it picks up state changes made by check_lab and abandon_lab.
+function main() {
     case "${1:-}" in
         --check|--submit)
-            # After check_lab returns (user chose to try another lab),
-            # fall through to the interactive menu loop below.
+            # check_lab either exits (user is done) or returns normally
+            # (user wants another lab). On return, fall through to the
+            # interactive menu loop so it redraws without a recursive call.
             check_lab
             ;;
         --help|-h)

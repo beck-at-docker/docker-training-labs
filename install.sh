@@ -67,9 +67,15 @@ echo "Command 'troubleshootmaclab' is now available"
 echo ""
 
 # Create user state directories with correct ownership.
-# Config and grades files are bootstrapped on first run by the main script,
-# so we only need to ensure the directories exist and are owned by the
-# invoking user (not root).
+#
+# When this installer is invoked via 'sudo ./install.sh', $HOME and $USER
+# resolve to root's home (/var/root) rather than the invoking user's. We
+# use $SUDO_USER (set by sudo to the original caller's username) to recover
+# the real home directory. The eval echo ~ trick expands ~ for an arbitrary
+# username without requiring getent or dscl.
+#
+# State files (config.json, grades.csv) are bootstrapped on first run by
+# the main script, so we only create directories here.
 echo "Initializing training environment..."
 USER_HOME=$(eval echo ~"${SUDO_USER:-$USER}")
 STATE_DIR="$USER_HOME/.docker-training-labs"
