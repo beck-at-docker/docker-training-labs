@@ -1,5 +1,10 @@
 #!/bin/bash
 # lib/colors.sh - Terminal color definitions
+#
+# Only four colors are used across this codebase: RED, GREEN, YELLOW, BLUE.
+# NC (No Color) resets to the terminal default after a colored sequence.
+# All variables are set to empty strings when stdout is not a terminal so
+# that piped or redirected output is never polluted with escape codes.
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'

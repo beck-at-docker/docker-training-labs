@@ -9,6 +9,39 @@
 #   troubleshootlinuxlab --abandon    # Abandon the active lab
 #   troubleshootlinuxlab --reset      # Re-break the current lab to try again
 #   troubleshootlinuxlab --help       # Show help
+#
+# Architecture overview
+# ---------------------
+# This script is the single entry point trainees interact with. Everything
+# else is support infrastructure:
+#
+#   lib/colors.sh    - Color variables (RED, GREEN, YELLOW, BLUE, NC)
+#   lib/state.sh     - Read/write ~/.docker-training-labs/config.json via python3
+#   lib/grading.sh   - Append rows to ~/.docker-training-labs/grades.csv
+#
+#   scenarios/break_<n>.sh  - Deliberately corrupt Docker Desktop
+#   tests/test_<n>.sh       - Verify the scenario has been fixed
+#
+# Lab lifecycle
+# -------------
+#   1. Trainee selects a lab; start_lab runs scenarios/break_<n>.sh and
+#      records the scenario name and start time in config.json
+#   2. Trainee diagnoses and fixes Docker Desktop manually
+#   3. --check runs tests/test_<n>.sh, parses the structured footer,
+#      records the grade, and prints feedback
+#   4. config.json is cleared so a new lab can be started
+#
+# Output contract (tests/test_*.sh footer, parsed by check_lab)
+# -------------------------------------------------------------
+#   Score: <n>%
+#   Tests Passed: <n>    <- written by generate_report in test_framework.sh
+#   Tests Failed: <n>    <- written by generate_report in test_framework.sh
+#
+# Difference from Mac/Windows versions
+# -------------------------------------
+#   lib/state.sh uses python3 for JSON reads and writes (vs. sed on Mac,
+#   ConvertFrom-Json on Windows). This is safe on Linux because python3 is
+#   a stated prerequisite checked by install.sh.
 
 # set -e is intentionally omitted. This is an interactive script with a menu
 # loop and functions that legitimately return non-zero (e.g. user cancels a

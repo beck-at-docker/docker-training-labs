@@ -1,6 +1,22 @@
 #!/bin/bash
 # lib/state.sh - State management functions
-# Uses python3 for JSON read/write to avoid platform-specific tools.
+#
+# Uses python3 for all JSON reads and writes. Unlike the Mac version which
+# avoids python3 by using sed, Linux can rely on it as a checked prerequisite
+# (install.sh requires Python 3.6+).
+#
+# Config file structure ($HOME/.docker-training-labs/config.json):
+#   {
+#     "version": "1.0.0",
+#     "trainee_id": "<username>",
+#     "current_scenario": "DNS" | null,
+#     "scenario_start_time": <epoch_seconds> | null
+#   }
+#
+# Write functions (set_current_scenario, set_scenario_start_time,
+# clear_current_scenario) all use a temp file + mv pattern: the new
+# content is written to a temp file first, then atomically renamed into
+# place. This prevents a half-written config if the process is interrupted.
 
 # Get current scenario name from config, or "null" if unset
 get_current_scenario() {
@@ -30,6 +46,7 @@ with open('$temp_file', 'w') as f:
     json.dump(data, f, indent=2)
 " 2>/dev/null
 
+    # Atomic replace: mv is a single syscall so the file is never half-written
     mv "$temp_file" "$CONFIG_FILE"
 }
 
