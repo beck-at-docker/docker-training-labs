@@ -211,8 +211,18 @@ function Check-Lab {
 
     Clear-CurrentScenario
 
+    # "Yes" returns to the caller so the interactive menu loop in Main()
+    # redraws naturally - no recursion needed. "No" exits.
     $again = Read-Host "Would you like to try another lab? (y/N)"
-    if ($again -match "^[yY]$") { Main }
+    if ($again -notmatch "^[yY]$") {
+        Write-Host ""
+        Write-Host "Training session complete. Great work!"
+        Write-Host ""
+        Write-Host "To see your overall progress, run:"
+        Write-Host "  troubleshootwinlab --report"
+        Write-Host ""
+        exit 0
+    }
 }
 
 # ------------------------------------------------------------------
@@ -353,8 +363,10 @@ function Reset-Lab {
 # ------------------------------------------------------------------
 function Main {
     switch ($Action) {
-        "--check"   { Check-Lab;      exit 0 }
-        "--submit"  { Check-Lab;      exit 0 }
+        # After Check-Lab returns (user chose to try another lab),
+        # fall through to the interactive menu loop below.
+        "--check"   { Check-Lab }
+        "--submit"  { Check-Lab }
         "--help"    { Show-Help;      exit 0 }
         "-h"        { Show-Help;      exit 0 }
         "--status"  { Show-Status;    exit 0 }

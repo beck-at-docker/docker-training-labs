@@ -11,7 +11,7 @@
 Open PowerShell (elevation is handled automatically) and run:
 
 ```powershell
-irm https://raw.githubusercontent.com/beck-at-docker/docker-training-labs-windows/main/bootstrap.ps1 | iex
+irm https://raw.githubusercontent.com/beck-at-docker/docker-training-labs-windows/main/lab/bootstrap.ps1 | iex
 ```
 
 Then open a new command prompt and run:

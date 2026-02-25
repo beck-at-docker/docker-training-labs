@@ -52,6 +52,8 @@ function Generate-Report {
         "==========================================",
         "",
         "Tests Run:    $script:TESTS_RUN",
+        # These two lines are parsed by Check-Lab in troubleshootwinlab.ps1.
+        # Format must stay exactly: "Tests Passed: <n>" and "Tests Failed: <n>"
         "Tests Passed: $script:TESTS_PASSED",
         "Tests Failed: $script:TESTS_FAILED",
         ""

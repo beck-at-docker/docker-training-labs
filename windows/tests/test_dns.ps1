@@ -69,7 +69,8 @@ elseif ($score -ge 80){ Write-Host "Grade: B - Good job!" -ForegroundColor Green
 elseif ($score -ge 70){ Write-Host "Grade: C - Passing" -ForegroundColor Yellow }
 else                  { Write-Host "Grade: F - Needs improvement" -ForegroundColor Red }
 
-# Structured output for Check-Lab to parse
+# Structured output parsed by Check-Lab in troubleshootwinlab.ps1.
+# Format must stay exactly: "Score: <n>%", "Tests Passed: <n>", "Tests Failed: <n>"
 Write-Host ""
 Write-Host "Score: $score%"
 Write-Host "Tests Passed: $script:TESTS_PASSED"
