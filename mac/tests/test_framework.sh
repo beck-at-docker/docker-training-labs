@@ -89,6 +89,8 @@ generate_report() {
         echo "=========================================="
         echo ""
         echo "Tests Run:    $TESTS_RUN"
+        # These two lines are parsed by check_lab() in troubleshootmaclab.
+        # Format must stay exactly: "Tests Passed: <n>" and "Tests Failed: <n>"
         echo "Tests Passed: $TESTS_PASSED"
         echo "Tests Failed: $TESTS_FAILED"
         echo ""
