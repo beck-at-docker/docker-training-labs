@@ -466,6 +466,9 @@ show_report_card() {
     local lab_count=0
     local dns_score=""
 
+    # Each scenario variable is overwritten on every matching row, so if a
+    # trainee attempted the same lab multiple times only the last score is
+    # shown. All attempts count toward the overall average.
     while IFS=',' read -r trainee scenario score timestamp duration; do
         # Skip header row and rows belonging to other trainees
         if [ "$trainee" = "trainee_id" ] || [ "$trainee" != "$USER" ]; then

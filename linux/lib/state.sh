@@ -37,6 +37,10 @@ set_current_scenario() {
         echo "{}" > "$CONFIG_FILE"
     fi
 
+    # $scenario and $CONFIG_FILE are interpolated directly into the Python
+    # string. This is safe because scenario values are hardcoded constants
+    # (DNS, PORT, BRIDGE, PROXY, CHAOS) set by start_lab() and never
+    # derived from user input.
     python3 -c "
 import json
 with open('$CONFIG_FILE', 'r') as f:
