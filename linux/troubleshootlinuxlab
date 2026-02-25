@@ -81,8 +81,6 @@ show_main_menu() {
         echo "Select a training lab:"
         echo ""
         echo "1. Container Connections"
-        echo -e "   ${DIM}Difficulty: ** | Time: 15-20 min${NC}"
-        echo -e "   ${DIM}Learn: Container networking, iptables, DNS troubleshooting${NC}"
         echo ""
         echo "2. View my report card"
         echo "0. Exit"
