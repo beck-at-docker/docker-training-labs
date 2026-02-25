@@ -93,9 +93,9 @@ generate_report() {
         echo "Tests Failed: $TESTS_FAILED"
         echo ""
         if [ $TESTS_FAILED -eq 0 ]; then
-            echo "Result: ✅ ALL TESTS PASSED"
+            echo "Result: ALL TESTS PASSED"
         else
-            echo "Result: ❌ SOME TESTS FAILED"
+            echo "Result: SOME TESTS FAILED"
         fi
         echo "=========================================="
     } | tee "$report_file"
