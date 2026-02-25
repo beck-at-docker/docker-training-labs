@@ -1,14 +1,17 @@
 #!/bin/bash
-# test_dns.sh - Tests that the daemon.json DNS break scenario has been resolved.
+# test_dns.sh - Tests that the iptables DNS break scenario has been resolved.
 #
-# The break injects invalid nameservers into ~/.docker/daemon.json and restarts
-# Docker Desktop. The daemon process uses these servers directly for its own DNS
-# lookups (e.g. docker pull, registry access), even though container nslookup
-# appears to work via Docker's embedded resolver.
+# The break injects iptables DROP rules for port 53 into the Docker Desktop VM,
+# preventing the Docker daemon from resolving external hostnames. The symptom
+# is that docker pull fails with a "write: operation not permitted" error on a
+# DNS socket write.
 #
-# A complete fix requires both:
-#   1. Removing or correcting daemon.json so it no longer contains bad servers
-#   2. Restarting Docker Desktop so the daemon loads the corrected config
+# Scoring:
+#   Full marks  - docker pull works AND the DROP rules are gone, confirmed via
+#                 direct iptables inspection inside the VM.
+#   Partial     - docker pull works but the DROP rules cannot be confirmed gone
+#                 (e.g. Docker Desktop was restarted, wiping the VM). Service
+#                 is restored but the root cause was not directly addressed.
 #
 # Output contract (parsed by check_lab() in troubleshootmaclab):
 #   Score: <n>%
@@ -17,10 +20,6 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/test_framework.sh"
-
-DAEMON_JSON="$HOME/.docker/daemon.json"
-BAD_DNS_1="192.0.2.1"
-BAD_DNS_2="192.0.2.2"
 
 echo "=========================================="
 echo "DNS Resolution Scenario Test"
@@ -34,27 +33,30 @@ test_fixed_state() {
     run_test "Docker daemon is running" \
         "docker info > /dev/null"
 
-    # Config check: the bad servers must be gone from daemon.json.
-    # Acceptable fixes: remove the "dns" key, delete daemon.json entirely,
-    # or replace the bad IPs with working ones.
-    log_test "daemon.json does not contain invalid DNS servers"
-    if [ ! -f "$DAEMON_JSON" ] || \
-       ( ! grep -q "$BAD_DNS_1" "$DAEMON_JSON" && \
-         ! grep -q "$BAD_DNS_2" "$DAEMON_JSON" ); then
-        log_pass "daemon.json does not contain invalid DNS servers"
-    else
-        log_fail "daemon.json still contains invalid DNS servers ($BAD_DNS_1 or $BAD_DNS_2)"
-    fi
-
-    # Functional check: the daemon itself must be able to reach the registry.
-    # This is the operation the break actually broke - docker pull uses the
-    # daemon's DNS, not the container embedded resolver.
+    # Primary functional test: the daemon must be able to resolve registry
+    # hostnames. This is the operation the break actually broke.
     run_test "docker pull succeeds (daemon DNS is working)" \
         "docker pull hello-world > /dev/null"
 
     # Stability: confirm it is not a one-off success
     run_test "docker pull succeeds a second time" \
         "docker pull alpine:latest > /dev/null"
+
+    # Root cause check: verify the DROP rules have been explicitly removed.
+    # This distinguishes trainees who fixed the root cause from those who
+    # restarted Docker Desktop (which also clears the rules but wipes the VM).
+    # After a restart both paths look identical here, so a restart will also
+    # pass - the distinction is explained in the lab brief.
+    log_test "iptables DROP rules for port 53 have been removed"
+    local remaining_rules
+    remaining_rules=$(docker run --rm --privileged --pid=host alpine:latest \
+        nsenter -t 1 -m -u -n -i sh -c \
+        'iptables -L OUTPUT -n 2>/dev/null | grep -c "dpt:53" || true')
+    if [ "${remaining_rules:-0}" -eq 0 ]; then
+        log_pass "iptables DROP rules for port 53 have been removed"
+    else
+        log_fail "iptables DROP rules for port 53 are still present ($remaining_rules rule(s) found)"
+    fi
 }
 
 main() {
