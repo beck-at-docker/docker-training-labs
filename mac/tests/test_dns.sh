@@ -1,13 +1,14 @@
 #!/bin/bash
-# test_dns.sh - Tests that the DNS break scenario has been correctly resolved.
+# test_dns.sh - Tests that the daemon.json DNS break scenario has been resolved.
 #
-# Scoring:
-#   Full marks  - DNS works AND the DROP rules have been explicitly removed.
-#                 This is the intended fix path.
-#   Partial     - DNS works but the DROP rules are absent because Docker Desktop
-#                 was restarted (VM wiped). Trainee gets credit for restoring
-#                 service but not for understanding the root cause.
-#   Fail        - DNS does not work.
+# The break injects invalid nameservers into ~/.docker/daemon.json and restarts
+# Docker Desktop. The daemon process uses these servers directly for its own DNS
+# lookups (e.g. docker pull, registry access), even though container nslookup
+# appears to work via Docker's embedded resolver.
+#
+# A complete fix requires both:
+#   1. Removing or correcting daemon.json so it no longer contains bad servers
+#   2. Restarting Docker Desktop so the daemon loads the corrected config
 #
 # Output contract (parsed by check_lab() in troubleshootmaclab):
 #   Score: <n>%
@@ -17,6 +18,10 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/test_framework.sh"
 
+DAEMON_JSON="$HOME/.docker/daemon.json"
+BAD_DNS_1="192.0.2.1"
+BAD_DNS_2="192.0.2.2"
+
 echo "=========================================="
 echo "DNS Resolution Scenario Test"
 echo "=========================================="
@@ -25,36 +30,31 @@ echo ""
 test_fixed_state() {
     log_info "Testing fixed state"
 
-    # Basic sanity: daemon must be up
+    # Basic sanity: daemon must be responsive
     run_test "Docker daemon is running" \
         "docker info > /dev/null"
 
-    # Core functional test: containers must resolve hostnames
-    run_test "Container DNS resolution works" \
-        "docker run --rm alpine:latest nslookup google.com > /dev/null"
-
-    run_test "Container can ping external hostname" \
-        "docker run --rm alpine:latest ping -c 2 google.com > /dev/null"
-
-    # Stability check
-    run_test "Multiple DNS queries succeed consistently" \
-        "for i in 1 2 3; do docker run --rm alpine:latest nslookup google.com > /dev/null || exit 1; done"
-
-    # Root cause check: were the iptables DROP rules explicitly removed?
-    # If they are gone it means the trainee removed them directly (full fix).
-    # If Docker Desktop was restarted instead, the rules are also gone but we
-    # cannot distinguish that here - both paths pass this test. The scoring
-    # note in the lab brief explains the distinction to the trainee.
-    log_test "iptables DROP rules for port 53 have been removed"
-    local remaining_rules
-    remaining_rules=$(docker run --rm --privileged --pid=host alpine:latest \
-        nsenter -t 1 -m -u -n -i sh -c \
-        'iptables -L OUTPUT -n 2>/dev/null | grep -c "dpt:53.*DROP" || true')
-    if [ "${remaining_rules:-0}" -eq 0 ]; then
-        log_pass "iptables DROP rules for port 53 have been removed"
+    # Config check: the bad servers must be gone from daemon.json.
+    # Acceptable fixes: remove the "dns" key, delete daemon.json entirely,
+    # or replace the bad IPs with working ones.
+    log_test "daemon.json does not contain invalid DNS servers"
+    if [ ! -f "$DAEMON_JSON" ] || \
+       ( ! grep -q "$BAD_DNS_1" "$DAEMON_JSON" && \
+         ! grep -q "$BAD_DNS_2" "$DAEMON_JSON" ); then
+        log_pass "daemon.json does not contain invalid DNS servers"
     else
-        log_fail "iptables DROP rules for port 53 are still present ($remaining_rules rule(s) found)"
+        log_fail "daemon.json still contains invalid DNS servers ($BAD_DNS_1 or $BAD_DNS_2)"
     fi
+
+    # Functional check: the daemon itself must be able to reach the registry.
+    # This is the operation the break actually broke - docker pull uses the
+    # daemon's DNS, not the container embedded resolver.
+    run_test "docker pull succeeds (daemon DNS is working)" \
+        "docker pull hello-world > /dev/null"
+
+    # Stability: confirm it is not a one-off success
+    run_test "docker pull succeeds a second time" \
+        "docker pull alpine:latest > /dev/null"
 }
 
 main() {
