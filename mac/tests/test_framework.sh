@@ -1,10 +1,27 @@
 #!/bin/bash
 # test_framework.sh - Core testing framework
+#
+# Sourced by every test_<scenario>.sh script. Provides logging helpers,
+# a test execution wrapper, a report generator, and a score calculator.
+#
+# Output contract
+# ---------------
+# check_lab() in troubleshootmaclab parses the stdout of each test script
+# for three specific lines. generate_report writes "Tests Passed:" and
+# "Tests Failed:"; each test script's main() writes "Score:".
+#
+#   Score: <n>%
+#   Tests Passed: <n>
+#   Tests Failed: <n>
+#
+# These lines must appear verbatim - any change to their format breaks
+# the parser in check_lab().
 
 TEST_RESULTS_DIR="/tmp/docker_training_tests"
 mkdir -p "$TEST_RESULTS_DIR"
 
-# Colors for output
+# Colors for output (defined locally so the framework is self-contained;
+# test scripts run in a subshell and do not source lib/colors.sh)
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -40,7 +57,16 @@ log_info() {
     echo -e "${BLUE}[INFO]${NC} $1"
 }
 
-# Test execution wrapper
+# run_test - Execute a shell command and record pass/fail
+#
+# $1 - Human-readable test name
+# $2 - Shell command string to execute
+# $3 - Expected exit code: 0 (default) means expect success;
+#      any non-zero value means expect failure (tests a broken state)
+#
+# eval is used so $2 can be a compound command (pipes, &&, etc.) rather
+# than a single executable. Output is captured to suppress noise; the
+# first three lines are shown on failure for quick diagnosis.
 run_test() {
     local test_name="$1"
     local test_command="$2"
@@ -75,7 +101,14 @@ run_test() {
     fi
 }
 
-# Generate test report
+# generate_report - Print a summary and save a copy to /tmp
+#
+# tee writes the report to both stdout (so it appears in the terminal and
+# gets captured by check_lab's subshell) and to a timestamped file in
+# TEST_RESULTS_DIR for later reference.
+#
+# The "Tests Passed:" and "Tests Failed:" lines here form part of the
+# output contract parsed by check_lab(). Do not change their format.
 generate_report() {
     local scenario=$1
     local timestamp=$(date +%Y%m%d_%H%M%S)
@@ -106,7 +139,7 @@ generate_report() {
     echo "Report saved to: $report_file"
 }
 
-# Calculate score
+# calculate_score - Return integer percentage of tests passed (0-100)
 calculate_score() {
     if [ $TESTS_RUN -eq 0 ]; then
         echo "0"
