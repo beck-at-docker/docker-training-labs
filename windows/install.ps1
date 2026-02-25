@@ -23,7 +23,11 @@ try {
     exit 1
 }
 
-# Confirm WSL2 backend
+# Confirm WSL2 backend.
+# The break scenarios inject iptables rules inside the Docker VM via nsenter.
+# That mechanism only exists in the WSL2 backend; Hyper-V uses a different
+# VM architecture where the same docker run --privileged approach may not
+# reach the correct network namespace.
 $dockerInfo = docker info 2>&1 | Out-String
 if ($dockerInfo -notmatch "WSL") {
     Write-Host ""
@@ -71,7 +75,10 @@ Copy-Item "$SCRIPT_DIR\scenarios\*.ps1"        "$INSTALL_DIR\scenarios\" -Force
 Copy-Item "$SCRIPT_DIR\tests\*.ps1"            "$INSTALL_DIR\tests\" -Force
 Write-Host "  Files installed to $INSTALL_DIR"
 
-# Create a cmd shim so 'troubleshootwinlab' works from any prompt
+# Create a cmd shim so 'troubleshootwinlab' works from any Command Prompt
+# or PowerShell window without needing to specify the full path or the
+# powershell.exe wrapper. The shim lives in System32 which is always on PATH.
+# %* forwards any arguments (--check, --report, etc.) to the ps1 script.
 $shimPath = "$env:SystemRoot\System32\troubleshootwinlab.cmd"
 @"
 @echo off

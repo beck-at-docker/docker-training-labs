@@ -1,4 +1,21 @@
 # test_framework.ps1 - Core testing framework
+#
+# Dot-sourced by every test_<scenario>.ps1 script. Provides logging helpers,
+# a test execution wrapper, a report generator, and a score calculator.
+#
+# Output contract
+# ---------------
+# Check-Lab in troubleshootwinlab.ps1 parses the stdout of each test script
+# for three specific lines. Generate-Report writes "Tests Passed:" and
+# "Tests Failed:"; each test script writes "Score:" after calling
+# Calculate-Score.
+#
+#   Score: <n>%
+#   Tests Passed: <n>
+#   Tests Failed: <n>
+#
+# These lines must appear verbatim - any change to their format breaks
+# the parser in Check-Lab.
 
 $script:TESTS_RUN    = 0
 $script:TESTS_PASSED = 0
@@ -10,6 +27,15 @@ function Log-Fail { param($msg) Write-Host "[FAIL] $msg" -ForegroundColor Red;  
 function Log-Info { param($msg) Write-Host "[INFO] $msg" -ForegroundColor Cyan }
 function Log-Warn { param($msg) Write-Host "[WARN] $msg" -ForegroundColor Yellow }
 
+# Run-Test - Execute a scriptblock and record pass/fail
+#
+# $TestBlock is a scriptblock rather than a string so PowerShell validates
+# the syntax at parse time and the IDE can provide completion. $LASTEXITCODE
+# is checked (not $?) because docker and other external commands set the exit
+# code but $? reflects the last PowerShell-native command result.
+#
+# $ExpectFailure = $true is used to test that a broken state is genuinely
+# broken (e.g. confirming docker pull fails before attempting a fix).
 function Run-Test {
     param(
         [string]$TestName,
@@ -38,6 +64,14 @@ function Run-Test {
     }
 }
 
+# Generate-Report - Print a summary and save a copy to $env:TEMP
+#
+# Tee-Object writes the report lines to both the pipeline (stdout, captured
+# by Check-Lab's child process invocation) and to a timestamped file in
+# $env:TEMP for later reference.
+#
+# The "Tests Passed:" and "Tests Failed:" lines here form part of the
+# output contract parsed by Check-Lab. Do not change their format.
 function Generate-Report {
     param([string]$Scenario)
 
@@ -68,6 +102,7 @@ function Generate-Report {
     return $reportFile
 }
 
+# Calculate-Score - Return integer percentage of tests passed (0-100)
 function Calculate-Score {
     if ($script:TESTS_RUN -eq 0) { return 0 }
     return [int]($script:TESTS_PASSED * 100 / $script:TESTS_RUN)

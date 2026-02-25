@@ -22,6 +22,13 @@ Write-Host ""
 
 # ------------------------------------------------------------------
 # Self-elevate if not running as Administrator
+#
+# install.ps1 writes to $env:ProgramData and $env:SystemRoot\System32,
+# both of which require elevation. Rather than failing with an access
+# error, bootstrap re-launches itself elevated via Start-Process -Verb
+# RunAs, which triggers the UAC prompt. The elevated process re-downloads
+# and re-runs the bootstrap so the full flow runs under elevation.
+# $env:BRANCH is forwarded so a custom branch selection is preserved.
 # ------------------------------------------------------------------
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator
