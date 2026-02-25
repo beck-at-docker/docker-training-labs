@@ -54,15 +54,9 @@ main() {
     generate_report "DNS_Scenario"
 
     score=$(calculate_score)
-    echo ""
     # Parsed by check_lab() in troubleshootlinuxlab. Format must stay: "Score: <n>%"
+    echo ""
     echo "Score: $score%"
-
-    if   [ "$score" -ge 90 ]; then echo "Grade: A - Excellent work!"
-    elif [ "$score" -ge 80 ]; then echo "Grade: B - Good job!"
-    elif [ "$score" -ge 70 ]; then echo "Grade: C - Passing"
-    else                            echo "Grade: F - Needs improvement"
-    fi
 }
 
 main "$@"
