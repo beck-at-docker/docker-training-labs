@@ -190,7 +190,14 @@ Diagnostic Commands to Try:
 - docker info | grep -i dns
 - cat ~/.docker/daemon.json
 
-Fix it, then restart Docker Desktop for the fix to take effect.
+If the above look fine, the problem may be at the network layer.
+Inspect what is happening to DNS traffic inside the Docker VM:
+
+  docker run --rm --privileged --pid=host alpine:latest \
+    nsenter -t 1 -m -u -n -i sh -c 'iptables -L OUTPUT -n'
+
+Note: Restarting Docker Desktop will also restore DNS as a last
+resort, but try to find and fix the root cause first.
 EOF
             ;;
         PORT)

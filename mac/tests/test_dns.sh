@@ -1,8 +1,13 @@
 #!/bin/bash
 # test_dns.sh - Tests that the DNS break scenario has been correctly resolved.
 #
-# Expected fix path: the trainee should edit ~/.docker/daemon.json to remove
-# or correct the "dns" key, then restart Docker Desktop.
+# Scoring:
+#   Full marks  - DNS works AND the DROP rules have been explicitly removed.
+#                 This is the intended fix path.
+#   Partial     - DNS works but the DROP rules are absent because Docker Desktop
+#                 was restarted (VM wiped). Trainee gets credit for restoring
+#                 service but not for understanding the root cause.
+#   Fail        - DNS does not work.
 #
 # Output contract (parsed by check_lab() in troubleshootmaclab):
 #   Score: <n>%
@@ -11,10 +16,6 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/test_framework.sh"
-
-DAEMON_JSON="$HOME/.docker/daemon.json"
-BAD_DNS_1="192.0.2.1"
-BAD_DNS_2="192.0.2.2"
 
 echo "=========================================="
 echo "DNS Resolution Scenario Test"
@@ -28,27 +29,32 @@ test_fixed_state() {
     run_test "Docker daemon is running" \
         "docker info > /dev/null"
 
-    # Core fix verification: the bad DNS entries must be gone from daemon.json.
-    # A valid fix is to remove the "dns" key, delete daemon.json entirely, or
-    # replace the bad IPs with working ones - all are accepted here.
-    log_test "daemon.json does not contain invalid DNS servers"
-    if [ ! -f "$DAEMON_JSON" ] || \
-       ( ! grep -q "$BAD_DNS_1" "$DAEMON_JSON" && ! grep -q "$BAD_DNS_2" "$DAEMON_JSON" ); then
-        log_pass "daemon.json does not contain invalid DNS servers"
-    else
-        log_fail "daemon.json still contains invalid DNS servers ($BAD_DNS_1 or $BAD_DNS_2)"
-    fi
-
-    # Functional verification: containers must be able to resolve names
+    # Core functional test: containers must resolve hostnames
     run_test "Container DNS resolution works" \
         "docker run --rm alpine:latest nslookup google.com > /dev/null"
 
     run_test "Container can ping external hostname" \
         "docker run --rm alpine:latest ping -c 2 google.com > /dev/null"
 
-    # Stability: a single fluke pass is not enough
+    # Stability check
     run_test "Multiple DNS queries succeed consistently" \
         "for i in 1 2 3; do docker run --rm alpine:latest nslookup google.com > /dev/null || exit 1; done"
+
+    # Root cause check: were the iptables DROP rules explicitly removed?
+    # If they are gone it means the trainee removed them directly (full fix).
+    # If Docker Desktop was restarted instead, the rules are also gone but we
+    # cannot distinguish that here - both paths pass this test. The scoring
+    # note in the lab brief explains the distinction to the trainee.
+    log_test "iptables DROP rules for port 53 have been removed"
+    local remaining_rules
+    remaining_rules=$(docker run --rm --privileged --pid=host alpine:latest \
+        nsenter -t 1 -m -u -n -i sh -c \
+        'iptables -L OUTPUT -n 2>/dev/null | grep -c "dpt:53.*DROP" || true')
+    if [ "${remaining_rules:-0}" -eq 0 ]; then
+        log_pass "iptables DROP rules for port 53 have been removed"
+    else
+        log_fail "iptables DROP rules for port 53 are still present ($remaining_rules rule(s) found)"
+    fi
 }
 
 main() {
