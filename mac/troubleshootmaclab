@@ -585,6 +585,9 @@ show_report_card() {
     local proxy_score=""
     local chaos_score=""
     
+    # Each scenario variable is overwritten on every matching row, so if a
+    # trainee attempted the same lab multiple times only the last score is
+    # shown. All attempts count toward the overall average.
     while IFS=',' read -r trainee scenario score timestamp duration; do
         if [ "$trainee" = "trainee_id" ]; then continue; fi
         if [ "$trainee" != "$USER" ]; then continue; fi
@@ -697,7 +700,7 @@ reset_lab() {
 #   No active lab: options to start a lab or view report
 # get_current_scenario is called once per loop iteration rather than once at
 # startup so it picks up state changes made by check_lab and abandon_lab.
-function main() {
+main() {
     case "${1:-}" in
         --check|--submit)
             # check_lab either exits (user is done) or returns normally
