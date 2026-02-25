@@ -34,10 +34,8 @@ iptables -I FORWARD -p udp --dport 53 -j DROP; \
 iptables -I FORWARD -p tcp --dport 53 -j DROP; \
 echo 'iptables rules applied'"
 
-docker run --rm --privileged --pid=host alpine:latest \
-    nsenter -t 1 -m -u -n -i sh -c "$IPTABLES_CMD"
-
-if [ $? -ne 0 ]; then
+if ! docker run --rm --privileged --pid=host alpine:latest \
+    nsenter -t 1 -m -u -n -i sh -c "$IPTABLES_CMD"; then
     echo "Error: Failed to apply iptables rules inside the VM"
     exit 1
 fi

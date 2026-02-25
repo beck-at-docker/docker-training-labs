@@ -87,7 +87,8 @@ else
     echo "Grade: F - Needs improvement"
 fi
 
-# Structured lines parsed by the main CLI's check_lab function
+# Structured output parsed by check_lab() in troubleshootlinuxlab.
+# Format must stay exactly: "Score: <n>%", "Tests Passed: <n>", "Tests Failed: <n>"
 echo ""
 echo "Score: $score%"
 echo "Tests Passed: $TESTS_PASSED"
