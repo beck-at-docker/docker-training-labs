@@ -1,5 +1,21 @@
 #!/bin/bash
 # break_proxy.sh - Corrupts proxy settings
+#
+# Sets invalid proxy configuration in two separate places to simulate the
+# kind of layered misconfiguration that happens in corporate environments:
+#
+#   1. ~/.docker/daemon.json: the Docker daemon reads this on startup.
+#      Setting an invalid proxy here means image pulls fail even after a
+#      terminal restart because the daemon is the one making the requests.
+#      Requires a Docker Desktop restart to take effect.
+#
+#   2. Shell RC file (~/.zshrc or ~/.bash_profile): sets HTTP_PROXY and
+#      HTTPS_PROXY environment variables that will conflict with any valid
+#      proxy config once the terminal is reloaded. The variables are wrapped
+#      in sentinel comments (BEGIN/END markers) for clean programmatic removal.
+#
+# A timestamp-based backup is created for both files so nothing is permanently
+# lost and trainees can restore from backup as one valid fix path.
 
 set -e
 
@@ -29,7 +45,10 @@ cat > "$DOCKER_CONFIG" << 'EOF'
 EOF
 
 # Method 2: Set conflicting environment variables in shell RC files
-# Detect which shell RC file to modify
+# Detect which shell RC file to modify.
+# Note: this script is always invoked via 'bash break_proxy.sh', so
+# $ZSH_VERSION is always unset regardless of the user's default shell.
+# The file-existence checks do the real detection work.
 if [ -n "$ZSH_VERSION" ] || [ -f "$HOME/.zshrc" ]; then
     SHELL_RC="$HOME/.zshrc"
 elif [ -n "$BASH_VERSION" ] || [ -f "$HOME/.bash_profile" ]; then

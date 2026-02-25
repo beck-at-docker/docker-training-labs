@@ -33,8 +33,9 @@ test_fixed_state() {
 
     # Test 4: Container-to-container communication
     docker run -d --name chaos-web nginx:alpine > /dev/null 2>&1
-    sleep 2
-    local web_ip=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' chaos-web 2>/dev/null)
+    sleep 2  # wait for the container's network interface to be assigned an IP
+    local web_ip
+    web_ip=$(docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' chaos-web 2>/dev/null)
     
     if [ -n "$web_ip" ]; then
         run_test "Container-to-container communication" \
@@ -68,10 +69,13 @@ test_fixed_state() {
     fi
     
     # Test 8: Verify network subnet conflicts resolved
-    local bridge_subnet=$(docker network inspect bridge 2>/dev/null | grep -o '"Subnet": *"[^"]*"' | head -1 | cut -d'"' -f4)
-    local conflict_nets=$(docker network ls --format '{{.Name}}' | while read net; do
+    local bridge_subnet
+    bridge_subnet=$(docker network inspect bridge 2>/dev/null | grep -o '"Subnet": *"[^"]*"' | head -1 | cut -d'"' -f4)
+    local conflict_nets
+    conflict_nets=$(docker network ls --format '{{.Name}}' | while read net; do
         if [ "$net" != "bridge" ] && [ "$net" != "host" ] && [ "$net" != "none" ]; then
-            local subnet=$(docker network inspect "$net" 2>/dev/null | grep -o '"Subnet": *"[^"]*"' | head -1 | cut -d'"' -f4)
+            local subnet
+            subnet=$(docker network inspect "$net" 2>/dev/null | grep -o '"Subnet": *"[^"]*"' | head -1 | cut -d'"' -f4)
             if [ "$subnet" = "$bridge_subnet" ]; then
                 echo "$net"
             fi

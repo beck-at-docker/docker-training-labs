@@ -2,13 +2,28 @@
 # state.sh - State management functions
 #
 # Manages the JSON config file at $CONFIG_FILE using only standard shell
-# tools (grep, sed, cat, mv, mktemp) to avoid any dependency on python3.
-# The config file has a fixed, known structure so we can read and write it
-# without a JSON parser.
+# tools (grep, sed, cat, mv, mktemp) to avoid any dependency on python3
+# or jq. The config file has a fixed, known structure so targeted reads
+# and writes are safe without a full JSON parser.
+#
+# Config file structure ($HOME/.docker-training-labs/config.json):
+#   {
+#     "version": "1.0.0",
+#     "trainee_id": "<username>",
+#     "current_scenario": "DNS" | null,
+#     "scenario_start_time": <epoch_seconds> | null
+#   }
+#
+# All writes go through _write_config, which writes to a temp file and
+# then atomically renames it into place. This prevents a half-written
+# config if the process is interrupted mid-write.
 
 # ------------------------------------------------------------------
 # _write_config - Atomically write the full config file
-# All four fields are required; handles null and numeric values correctly.
+#
+# Takes all four fields so every write is a complete, consistent
+# document. Callers read the current values for fields they are not
+# changing and pass them through unchanged.
 # ------------------------------------------------------------------
 _write_config() {
     local version=$1
@@ -42,12 +57,20 @@ _write_config() {
   "scenario_start_time": $time_json
 }
 EOF
+    # Atomic replace: mv is a single syscall so the file is never half-written
     mv "$temp_file" "$CONFIG_FILE"
 }
 
 # ------------------------------------------------------------------
-# _read_config_field - Extract a single field value from the config JSON.
-# Uses grep to find the line and sed to strip the key, quotes, and commas.
+# _read_config_field - Extract a single field value from config JSON
+#
+# Uses grep to isolate the line containing the field, then sed to strip
+# everything except the bare value:
+#   sed step 1: "s/.*\"field\": *//"  - remove key and leading whitespace
+#   sed step 2: "s/[\",$'\''']//g"   - remove quotes, commas, single quotes
+#   sed step 3: "s/[[:space:]]*$//"  - strip trailing whitespace
+#
+# This handles string values ("foo"), numbers (123), and the null literal.
 # Returns $default if the file is missing or the field is not found.
 # ------------------------------------------------------------------
 _read_config_field() {
@@ -107,7 +130,7 @@ get_scenario_start_time() {
     local val
     val=$(_read_config_field "scenario_start_time" "0")
 
-    # Treat null or empty as 0
+    # Treat null or empty as 0 so arithmetic in the caller always works
     if [ "$val" = "null" ] || [ -z "$val" ]; then
         echo "0"
     else

@@ -1,5 +1,21 @@
 #!/bin/bash
 # break_bridge.sh - Corrupts Docker's default bridge network
+#
+# Two separate mechanisms are used together to make the break harder to diagnose:
+#
+#   1. Subnet conflict: creates two custom networks with the same 172.17.0.0/16
+#      subnet as the default bridge. This causes Docker to log confusing
+#      errors and can prevent new containers from getting valid IPs.
+#
+#   2. iptables DROP rule: inserts a rule at the top of the FORWARD chain
+#      that drops all traffic from docker0. This is the primary break -
+#      containers start and get IPs but have no connectivity.
+#      The nsenter privileged container is required because iptables rules
+#      live inside the Docker Desktop VM, not on the macOS host.
+#
+# The started containers (broken-web, broken-app) give trainees something to
+# inspect. Their existence demonstrates that Docker itself is running fine;
+# the networking layer is what's broken.
 
 set -e
 
