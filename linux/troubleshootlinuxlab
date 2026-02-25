@@ -1,0 +1,621 @@
+#!/bin/bash
+# troubleshootlinuxlab - Main training lab CLI for Docker Desktop on Linux
+#
+# Usage:
+#   troubleshootlinuxlab              # Interactive lab selection menu
+#   troubleshootlinuxlab --check      # Grade your current lab
+#   troubleshootlinuxlab --status     # Show active lab
+#   troubleshootlinuxlab --report     # Show your report card
+#   troubleshootlinuxlab --abandon    # Abandon the active lab
+#   troubleshootlinuxlab --reset      # Re-break the current lab to try again
+#   troubleshootlinuxlab --help       # Show help
+
+set -e
+
+# ------------------------------------------------------------------
+# Configuration
+# ------------------------------------------------------------------
+INSTALL_DIR="/usr/local/lib/docker-training-labs"
+STATE_DIR="$HOME/.docker-training-labs"
+CONFIG_FILE="$STATE_DIR/config.json"
+GRADES_FILE="$STATE_DIR/grades.csv"
+REPORTS_DIR="$STATE_DIR/reports"
+
+# Ensure runtime state directories exist (safe to run on every invocation)
+mkdir -p "$STATE_DIR" "$REPORTS_DIR" 2>/dev/null || true
+
+# Bootstrap config file if it was removed or never created
+if [ ! -f "$CONFIG_FILE" ]; then
+    cat > "$CONFIG_FILE" << EOF
+{
+  "version": "1.0.0",
+  "trainee_id": "$USER",
+  "current_scenario": null,
+  "scenario_start_time": null
+}
+EOF
+fi
+
+# Bootstrap grades file if missing
+if [ ! -f "$GRADES_FILE" ]; then
+    echo "trainee_id,scenario,score,timestamp,duration_seconds" > "$GRADES_FILE"
+fi
+
+# Source shared library functions
+source "$INSTALL_DIR/lib/colors.sh"
+source "$INSTALL_DIR/lib/state.sh"
+source "$INSTALL_DIR/lib/grading.sh"
+
+# ------------------------------------------------------------------
+# show_banner
+# ------------------------------------------------------------------
+show_banner() {
+    clear
+    echo -e "${BLUE}=========================================="
+    echo "Docker Desktop Training Labs"
+    echo "Break-Fix Troubleshooting Practice"
+    echo -e "==========================================${NC}"
+    echo ""
+}
+
+# ------------------------------------------------------------------
+# show_main_menu
+# ------------------------------------------------------------------
+show_main_menu() {
+    show_banner
+
+    local current_scenario
+    current_scenario=$(get_current_scenario)
+
+    if [ -n "$current_scenario" ] && [ "$current_scenario" != "null" ]; then
+        # An active lab is in progress - offer continuation options
+        echo -e "${YELLOW}WARNING: You currently have an active lab: $current_scenario${NC}"
+        echo ""
+        echo "1. Continue working on current lab"
+        echo "2. Submit current lab for grading"
+        echo "3. Abandon current lab and start new"
+        echo "4. View my report card"
+        echo "0. Exit"
+    else
+        # No active lab - show the full lab selection menu
+        echo "Select a training lab:"
+        echo ""
+        echo "1. DNS Resolution Failure"
+        echo -e "   ${DIM}Difficulty: ** | Time: 15-20 min${NC}"
+        echo -e "   ${DIM}Learn: Container networking, iptables, DNS troubleshooting${NC}"
+        echo ""
+        echo "2. View my report card"
+        echo "0. Exit"
+    fi
+
+    echo ""
+    echo -e "${BLUE}==========================================${NC}"
+}
+
+# ------------------------------------------------------------------
+# show_lab_instructions - Print the brief for the named lab
+# ------------------------------------------------------------------
+show_lab_instructions() {
+    local lab=$1
+
+    case $lab in
+        DNS)
+            cat << 'EOF'
+Problem: Containers cannot resolve external hostnames
+
+Your Docker Desktop containers are unable to reach external
+resources. Image pulls fail and containers cannot access the
+internet, even though your Linux host resolves DNS fine.
+
+Symptoms you should observe:
+  - docker pull commands fail with DNS errors
+  - Containers cannot ping google.com by name
+  - nslookup inside containers times out or fails
+  - Host machine DNS works without issue
+
+Diagnostic Commands to Try:
+  docker run --rm alpine:latest nslookup google.com
+  docker run --rm alpine:latest cat /etc/resolv.conf
+  docker run --rm alpine:latest ping -c 3 8.8.8.8
+  docker info
+
+Hint: The problem is below the Docker configuration layer.
+Think about what controls network traffic between the
+Docker Desktop VM and the outside world.
+EOF
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------
+# start_lab - Run the break script and record state
+# ------------------------------------------------------------------
+start_lab() {
+    local lab_number=$1
+    local lab_name=""
+    local break_script=""
+
+    case $lab_number in
+        1)
+            lab_name="DNS"
+            break_script="$INSTALL_DIR/scenarios/break_dns.sh"
+            ;;
+        *)
+            echo -e "${RED}Invalid lab selection${NC}"
+            return 1
+            ;;
+    esac
+
+    show_banner
+    echo -e "${YELLOW}Starting Lab: $lab_name${NC}"
+    echo ""
+
+    read -p "This will break your Docker Desktop environment. Continue? (y/N): " confirm
+    if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+        echo "Cancelled."
+        return 0
+    fi
+
+    echo ""
+    echo "Breaking Docker Desktop..."
+
+    if ! bash "$break_script"; then
+        echo -e "${RED}Failed to break the environment. Is Docker Desktop running?${NC}"
+        return 1
+    fi
+
+    # Record that the lab is active
+    set_current_scenario "$lab_name"
+    set_scenario_start_time "$(date +%s)"
+
+    show_banner
+    echo -e "${GREEN}Lab Started: $lab_name${NC}"
+    echo ""
+    echo -e "${BLUE}=========================================="
+    echo "Your Mission"
+    echo -e "==========================================${NC}"
+    show_lab_instructions "$lab_name"
+    echo ""
+    echo -e "${BLUE}=========================================="
+    echo "When You're Done"
+    echo -e "==========================================${NC}"
+    echo ""
+    echo "When you think you've fixed the issue, run:"
+    echo -e "${GREEN}  troubleshootlinuxlab --check${NC}"
+    echo ""
+    echo "This will test your fix and provide a score."
+    echo ""
+    echo "To see these instructions again, run:"
+    echo "  troubleshootlinuxlab --help"
+    echo ""
+    echo "Good luck!"
+    echo ""
+}
+
+# ------------------------------------------------------------------
+# check_lab - Run the test script and record a grade
+# ------------------------------------------------------------------
+check_lab() {
+    local current_scenario
+    current_scenario=$(get_current_scenario)
+
+    if [ -z "$current_scenario" ] || [ "$current_scenario" = "null" ]; then
+        echo -e "${RED}No active lab. Start a lab first.${NC}"
+        exit 1
+    fi
+
+    show_banner
+    echo -e "${YELLOW}Testing your fix for: $current_scenario${NC}"
+    echo ""
+    echo "Running diagnostic tests..."
+    echo ""
+
+    # Convert scenario name to lowercase for the filename (bash 3+ compatible)
+    local scenario_lower
+    scenario_lower=$(echo "$current_scenario" | tr '[:upper:]' '[:lower:]')
+    local test_script="$INSTALL_DIR/tests/test_${scenario_lower}.sh"
+    local test_output
+    test_output=$(mktemp)
+
+    if ! bash "$test_script" > "$test_output" 2>&1; then
+        echo -e "${RED}Test script encountered an error${NC}"
+        cat "$test_output"
+        rm "$test_output"
+        exit 1
+    fi
+
+    # Extract structured values written by the test script
+    local score
+    score=$(grep "^Score:" "$test_output" | grep -o '[0-9]\+' | head -1)
+    score=${score:-0}
+
+    local tests_passed
+    tests_passed=$(grep "^Tests Passed:" "$test_output" | grep -o '[0-9]\+')
+    tests_passed=${tests_passed:-0}
+
+    local tests_failed
+    tests_failed=$(grep "^Tests Failed:" "$test_output" | grep -o '[0-9]\+')
+    tests_failed=${tests_failed:-0}
+
+    # Calculate elapsed time
+    local start_time end_time duration duration_min
+    start_time=$(get_scenario_start_time)
+    end_time=$(date +%s)
+    duration=$((end_time - start_time))
+    duration_min=$((duration / 60))
+
+    # Display full test output
+    show_banner
+    echo -e "${BLUE}=========================================="
+    echo "Lab Results: $current_scenario"
+    echo -e "==========================================${NC}"
+    echo ""
+    cat "$test_output"
+    echo ""
+
+    # Persist the full output as a report file
+    local report_file="$REPORTS_DIR/${current_scenario}_$(date +%Y%m%d_%H%M%S).txt"
+    cp "$test_output" "$report_file"
+
+    # Record the grade in the CSV
+    record_grade "$USER" "$current_scenario" "$score" "$duration"
+
+    # Personalised feedback section
+    echo -e "${BLUE}=========================================="
+    echo "Feedback"
+    echo -e "==========================================${NC}"
+    echo ""
+    echo "Time taken:   $duration_min minutes"
+    echo "Tests passed: $tests_passed"
+    echo "Tests failed: $tests_failed"
+    echo ""
+
+    if [ "$score" -ge 90 ]; then
+        echo -e "${GREEN}Excellent work!${NC}"
+        echo "You demonstrated strong troubleshooting skills."
+        echo "You're ready for production support on this topic."
+    elif [ "$score" -ge 80 ]; then
+        echo -e "${GREEN}Good job!${NC}"
+        echo "You fixed the main issues. Review the failed tests to go further."
+    elif [ "$score" -ge 70 ]; then
+        echo -e "${YELLOW}Passing${NC}"
+        echo "You got the basics but missed some key points."
+        echo "Consider retrying this lab for better mastery."
+    else
+        echo -e "${RED}Needs improvement${NC}"
+        echo "The issue was not fully resolved."
+        echo "Review the diagnostic steps and try again."
+    fi
+
+    echo ""
+    echo "Full report saved to:"
+    echo "  $report_file"
+    echo ""
+
+    # Clear active lab state so a new one can be started
+    clear_current_scenario
+
+    echo -e "${BLUE}==========================================${NC}"
+    echo ""
+    read -p "Would you like to try another lab? (y/N): " continue_training
+    if [ "$continue_training" = "y" ] || [ "$continue_training" = "Y" ]; then
+        main
+    else
+        echo ""
+        echo "Training session complete."
+        echo ""
+        echo "To review your overall progress, run:"
+        echo "  troubleshootlinuxlab --report"
+        echo ""
+    fi
+
+    rm "$test_output"
+}
+
+# ------------------------------------------------------------------
+# show_help
+# ------------------------------------------------------------------
+show_help() {
+    show_banner
+    cat << 'EOF'
+Usage: troubleshootlinuxlab [OPTION]
+
+Interactive Docker Desktop troubleshooting training labs for Linux.
+
+With no options, launches the interactive lab selection menu.
+
+Options:
+  --check          Test and grade your current lab solution
+  --report         Show your training report card
+  --status         Show currently active lab
+  --abandon        Abandon current lab without scoring
+  --reset          Re-break the current lab so you can try again
+  --help           Show this help message
+
+Examples:
+  troubleshootlinuxlab              # Start interactive menu
+  troubleshootlinuxlab --check      # Submit current lab for grading
+  troubleshootlinuxlab --report     # View your progress
+  troubleshootlinuxlab --reset      # Reset current lab (timer restarts)
+
+Lab Workflow:
+  1. Run 'troubleshootlinuxlab' and select a lab
+  2. The lab breaks Docker Desktop in a specific way
+  3. Use your troubleshooting skills to diagnose and fix
+  4. Run 'troubleshootlinuxlab --check' when done
+  5. Review your score and feedback
+
+Current active lab (if any):
+EOF
+    local current
+    current=$(get_current_scenario)
+    if [ -n "$current" ] && [ "$current" != "null" ]; then
+        local start_time now elapsed
+        start_time=$(get_scenario_start_time)
+        now=$(date +%s)
+        elapsed=$(( (now - start_time) / 60 ))
+        echo "  $current (started $elapsed minutes ago)"
+    else
+        echo "  None"
+    fi
+    echo ""
+    echo "For more information, visit:"
+    echo "  https://docs.docker.com"
+    echo ""
+}
+
+# ------------------------------------------------------------------
+# show_status
+# ------------------------------------------------------------------
+show_status() {
+    show_banner
+    local current
+    current=$(get_current_scenario)
+
+    if [ -z "$current" ] || [ "$current" = "null" ]; then
+        echo "No active lab."
+        echo ""
+        echo "Start a lab with:"
+        echo "  troubleshootlinuxlab"
+        echo ""
+    else
+        echo -e "${YELLOW}Active Lab: $current${NC}"
+        echo ""
+        local start_time now elapsed
+        start_time=$(get_scenario_start_time)
+        now=$(date +%s)
+        elapsed=$(( (now - start_time) / 60 ))
+        echo "Time elapsed: $elapsed minutes"
+        echo ""
+        echo "When done, run:"
+        echo -e "  ${GREEN}troubleshootlinuxlab --check${NC}"
+        echo ""
+        echo "To see instructions again:"
+        echo "  troubleshootlinuxlab --help"
+        echo ""
+    fi
+}
+
+# ------------------------------------------------------------------
+# show_report_card
+# ------------------------------------------------------------------
+show_report_card() {
+    show_banner
+    echo -e "${BLUE}=========================================="
+    echo "Your Training Report Card"
+    echo -e "==========================================${NC}"
+    echo ""
+
+    if [ ! -f "$GRADES_FILE" ] || [ "$(wc -l < "$GRADES_FILE")" -le 1 ]; then
+        echo "No labs completed yet."
+        echo ""
+        echo "Start your first lab with:"
+        echo "  troubleshootlinuxlab"
+        echo ""
+        return
+    fi
+
+    local total_score=0
+    local lab_count=0
+    local dns_score=""
+
+    while IFS=',' read -r trainee scenario score timestamp duration; do
+        # Skip header row and rows belonging to other trainees
+        if [ "$trainee" = "trainee_id" ] || [ "$trainee" != "$USER" ]; then
+            continue
+        fi
+
+        case "$scenario" in
+            DNS) dns_score="${score}%" ;;
+        esac
+
+        total_score=$((total_score + score))
+        lab_count=$((lab_count + 1))
+    done < "$GRADES_FILE"
+
+    echo "Lab Scores:"
+    echo "  DNS Resolution:  ${dns_score:-Not attempted}"
+    echo ""
+
+    if [ "$lab_count" -gt 0 ]; then
+        local avg_score
+        avg_score=$((total_score / lab_count))
+        echo "Overall Average: $avg_score%"
+        echo ""
+
+        if [ "$avg_score" -ge 90 ]; then
+            echo -e "Grade: ${GREEN}A - Excellent!${NC}"
+            echo "You're ready for production Docker Desktop support."
+        elif [ "$avg_score" -ge 80 ]; then
+            echo -e "Grade: ${GREEN}B - Good work!${NC}"
+            echo "Strong troubleshooting skills. Minor review recommended."
+        elif [ "$avg_score" -ge 70 ]; then
+            echo -e "Grade: ${YELLOW}C - Passing${NC}"
+            echo "Consider retaking labs with low scores for improvement."
+        else
+            echo -e "Grade: ${RED}F - Needs improvement${NC}"
+            echo "Please review the training materials and try again."
+        fi
+    fi
+
+    echo ""
+    echo "Completed labs: $lab_count"
+    echo ""
+    echo -e "${BLUE}==========================================${NC}"
+    echo ""
+}
+
+# ------------------------------------------------------------------
+# abandon_lab
+# ------------------------------------------------------------------
+abandon_lab() {
+    local current
+    current=$(get_current_scenario)
+
+    if [ -z "$current" ] || [ "$current" = "null" ]; then
+        echo "No active lab to abandon."
+        return
+    fi
+
+    echo -e "${YELLOW}Abandoning lab: $current${NC}"
+    read -p "Are you sure? This will not be scored. (y/N): " confirm
+
+    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+        clear_current_scenario
+        echo "Lab abandoned."
+    else
+        echo "Cancelled."
+    fi
+}
+
+# ------------------------------------------------------------------
+# reset_lab - Re-run the break script so the trainee can try again
+# ------------------------------------------------------------------
+reset_lab() {
+    local current
+    current=$(get_current_scenario)
+
+    if [ -z "$current" ] || [ "$current" = "null" ]; then
+        echo "No active lab to reset."
+        return
+    fi
+
+    echo -e "${YELLOW}Resetting lab: $current${NC}"
+    echo "This will re-break the environment so you can try again."
+    read -p "Continue? (y/N): " confirm
+
+    if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+        local current_lower
+        current_lower=$(echo "$current" | tr '[:upper:]' '[:lower:]')
+        bash "$INSTALL_DIR/scenarios/break_${current_lower}.sh"
+
+        # Restart the timer
+        set_scenario_start_time "$(date +%s)"
+        echo -e "${GREEN}Lab reset. Timer restarted. Good luck!${NC}"
+    else
+        echo "Cancelled."
+    fi
+}
+
+# ------------------------------------------------------------------
+# main
+# ------------------------------------------------------------------
+main() {
+    case "${1:-}" in
+        --check|--submit)
+            check_lab
+            exit 0
+            ;;
+        --help|-h)
+            show_help
+            exit 0
+            ;;
+        --status)
+            show_status
+            exit 0
+            ;;
+        --report|--grades)
+            show_report_card
+            exit 0
+            ;;
+        --abandon)
+            abandon_lab
+            exit 0
+            ;;
+        --reset)
+            reset_lab
+            exit 0
+            ;;
+        "")
+            # Fall through to the interactive menu loop
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Run 'troubleshootlinuxlab --help' for usage information."
+            exit 1
+            ;;
+    esac
+
+    # Interactive menu loop
+    while true; do
+        show_main_menu
+        read -p "Select option: " choice
+
+        local current
+        current=$(get_current_scenario)
+
+        if [ -n "$current" ] && [ "$current" != "null" ]; then
+            # Active lab menu
+            case $choice in
+                1)
+                    echo ""
+                    echo "Continue working on your lab."
+                    echo "Run 'troubleshootlinuxlab --check' when done."
+                    echo ""
+                    read -p "Press enter to continue..."
+                    exit 0
+                    ;;
+                2)
+                    check_lab
+                    ;;
+                3)
+                    abandon_lab
+                    ;;
+                4)
+                    show_report_card
+                    read -p "Press enter to continue..."
+                    ;;
+                0)
+                    echo "Goodbye!"
+                    exit 0
+                    ;;
+                *)
+                    echo "Invalid option"
+                    sleep 1
+                    ;;
+            esac
+        else
+            # No active lab menu
+            case $choice in
+                1)
+                    start_lab 1
+                    exit 0
+                    ;;
+                2)
+                    show_report_card
+                    read -p "Press enter to continue..."
+                    ;;
+                0)
+                    echo "Goodbye!"
+                    exit 0
+                    ;;
+                *)
+                    echo "Invalid option"
+                    sleep 1
+                    ;;
+            esac
+        fi
+    done
+}
+
+main "$@"
