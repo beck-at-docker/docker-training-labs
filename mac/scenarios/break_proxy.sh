@@ -1,5 +1,21 @@
 #!/bin/bash
 # break_proxy.sh - Corrupts proxy settings
+#
+# Sets invalid proxy configuration in two separate places to simulate the
+# kind of layered misconfiguration that happens in corporate environments:
+#
+#   1. ~/.docker/daemon.json: the Docker daemon reads this on startup.
+#      Setting an invalid proxy here means image pulls fail even after a
+#      terminal restart because the daemon is the one making the requests.
+#      Requires a Docker Desktop restart to take effect.
+#
+#   2. Shell RC file (~/.zshrc or ~/.bash_profile): sets HTTP_PROXY and
+#      HTTPS_PROXY environment variables that will conflict with any valid
+#      proxy config once the terminal is reloaded. The variables are wrapped
+#      in sentinel comments (BEGIN/END markers) for clean programmatic removal.
+#
+# A timestamp-based backup is created for both files so nothing is permanently
+# lost and trainees can restore from backup as one valid fix path.
 
 set -e
 

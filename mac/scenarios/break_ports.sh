@@ -1,5 +1,16 @@
 #!/bin/bash
 # break_ports.sh - Creates port conflicts for common Docker ports
+#
+# Occupies five ports that trainees are likely to need:
+#   80, 443  - nginx containers named 'port-squatter-*' (easy to find with docker ps)
+#   3306     - mysql container (slightly harder - requires knowing the port)
+#   5432     - postgres container named '.hidden-postgres' (leading dot hides it
+#              from naive 'docker ps' name filters and makes it less obvious)
+#   8080     - python3 http.server process on the host (not a container at all;
+#              trainees must look beyond 'docker ps' to find and kill it)
+#
+# The mix of container types and the host process is intentional - a real port
+# conflict can come from any process, not just Docker containers.
 
 set -e
 
