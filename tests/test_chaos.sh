@@ -104,31 +104,9 @@ main() {
     generate_report "CHAOS_MODE_Scenario"
 
     score=$(calculate_score)
-    echo ""
     # Parsed by check_lab() in troubleshootmaclab. Format must stay: "Score: <n>%"
+    echo ""
     echo "Score: $score%"
-    echo ""
-
-    if [ $score -ge 95 ]; then
-        echo "Grade: A+ - LEGENDARY! You conquered CHAOS MODE!"
-        echo "You've demonstrated master-level Docker Desktop troubleshooting."
-    elif [ $score -ge 90 ]; then
-        echo "Grade: A - Excellent work!"
-        echo "You successfully diagnosed and fixed multiple simultaneous failures."
-    elif [ $score -ge 80 ]; then
-        echo "Grade: B - Good job!"
-        echo "Most systems fixed. Review failed tests for improvement."
-    elif [ $score -ge 70 ]; then
-        echo "Grade: C - Passing"
-        echo "Basic fixes applied but some issues remain."
-    else
-        echo "Grade: F - Needs improvement"
-        echo "CHAOS MODE requires fixing ALL systems. Keep practicing!"
-    fi
-    
-    echo ""
-    echo "Chaos Mode is the ultimate test. Each individual lab builds"
-    echo "skills needed for this comprehensive disaster recovery scenario."
 }
 
 main "$@"

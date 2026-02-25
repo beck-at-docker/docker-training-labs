@@ -29,10 +29,7 @@ echo ""
 
 # Create installation directories
 echo "Creating installation directories..."
-sudo mkdir -p "$INSTALL_DIR"
-sudo mkdir -p "$INSTALL_DIR/lib"
-sudo mkdir -p "$INSTALL_DIR/scenarios"
-sudo mkdir -p "$INSTALL_DIR/tests"
+sudo mkdir -p "$INSTALL_DIR/lib" "$INSTALL_DIR/scenarios" "$INSTALL_DIR/tests"
 
 echo "Directories created"
 echo ""
