@@ -1,5 +1,23 @@
 # state.ps1 - State management functions
 # Compatible with Windows PowerShell 5.1+
+#
+# Config file structure ($STATE_DIR\config.json):
+#   {
+#     "version": "1.0.0",
+#     "trainee_id": "<username>",
+#     "current_scenario": "DNS" | null,
+#     "scenario_start_time": <epoch_seconds> | null
+#   }
+#
+# All write functions use Add-Member -Force to set properties on the
+# deserialized PSCustomObject. Direct property assignment (e.g. $data.foo = x)
+# does not work reliably on objects produced by ConvertFrom-Json in PS5.1
+# because those objects are NoteProperty-based PSCustomObjects. Add-Member
+# -Force adds the property if missing and overwrites it if present.
+#
+# Each function has a try/catch: the try block reads the existing config and
+# merges the new value; the catch block writes a minimal config if the file is
+# missing, corrupt, or unreadable. This keeps state writes idempotent.
 
 function Get-CurrentScenario {
     if (-not (Test-Path $CONFIG_FILE)) { return $null }
@@ -20,7 +38,7 @@ function Set-CurrentScenario {
         $data | Add-Member -MemberType NoteProperty -Name current_scenario -Value $Scenario -Force
         $data | ConvertTo-Json | Set-Content $CONFIG_FILE -Encoding UTF8
     } catch {
-        # Fallback: write minimal config
+        # Fallback: write minimal config if read/merge failed
         [PSCustomObject]@{ current_scenario = $Scenario } | ConvertTo-Json | Set-Content $CONFIG_FILE -Encoding UTF8
     }
 }

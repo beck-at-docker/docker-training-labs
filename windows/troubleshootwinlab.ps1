@@ -1,5 +1,41 @@
-# troubleshootwinlab.ps1 - Main training lab CLI
-# Run with: powershell -ExecutionPolicy Bypass -File troubleshootwinlab.ps1 [--check|--status|--report|--help]
+# troubleshootwinlab.ps1 - Main training lab CLI (Windows / WSL2 backend)
+#
+# Run with: powershell -ExecutionPolicy Bypass -File troubleshootwinlab.ps1 [options]
+# Or via the cmd shim installed by install.ps1: troubleshootwinlab [options]
+#
+# Architecture overview
+# ---------------------
+# This script is the single entry point trainees interact with. Everything
+# else is support infrastructure:
+#
+#   lib\colors.ps1    - Write-Blue/Green/Yellow/Red console output helpers
+#   lib\state.ps1     - Read/write $STATE_DIR\config.json via ConvertFrom-Json
+#   lib\grading.ps1   - Append rows to $STATE_DIR\grades.csv
+#
+#   scenarios\break_<n>.ps1 - Deliberately corrupt Docker Desktop
+#   tests\test_<n>.ps1      - Verify the scenario has been fixed
+#
+# Lab lifecycle
+# -------------
+#   1. Trainee selects a lab; Start-Lab runs scenarios\break_<n>.ps1 in a
+#      child PowerShell process and records the scenario name and start
+#      time in config.json via lib\state.ps1
+#   2. Trainee diagnoses and fixes Docker Desktop manually
+#   3. --check runs tests\test_<n>.ps1 in a child process, captures output,
+#      parses the structured footer, records the grade, and prints feedback
+#   4. config.json is cleared so a new lab can be started
+#
+# Output contract (tests\test_*.ps1 footer, parsed by Check-Lab)
+# -------------------------------------------------------------
+#   Score: <n>%
+#   Tests Passed: <n>    <- written by Generate-Report in test_framework.ps1
+#   Tests Failed: <n>    <- written by Generate-Report in test_framework.ps1
+#
+# Note on child process execution
+# --------------------------------
+# Break and test scripts are run via '& powershell -ExecutionPolicy Bypass
+# -File <path>' rather than dot-sourcing. This isolates their side effects
+# and means $LASTEXITCODE reflects the script's exit code reliably.
 
 param(
     [string]$Action = ""
@@ -156,6 +192,13 @@ function Start-Lab {
 }
 
 # ------------------------------------------------------------------
+# Check-Lab - Run the test script for the active scenario and record a grade
+#
+# Runs the test script in a child process and captures all output as an
+# array of strings. Parses the structured footer lines, records the grade,
+# displays the full output, then asks whether to try another lab.
+#   - Yes: returns normally so Main()'s while loop redraws the menu
+#   - No:  exits the process
 function Check-Lab {
     $current = Get-CurrentScenario
     if (-not $current -or $current -eq "null") {
@@ -169,10 +212,14 @@ function Check-Lab {
     Write-Host "Running diagnostic tests..."
     Write-Host ""
 
+    # Run the test script in a child process. $current.ToLower() maps the
+    # stored scenario name (e.g. "DNS") to the test filename (test_dns.ps1).
+    # 2>&1 merges stderr into the captured output array so nothing is lost.
     $testScript = "$INSTALL_DIR\tests\test_$($current.ToLower()).ps1"
     $testOutput = & powershell -ExecutionPolicy Bypass -File $testScript 2>&1
 
-    # Parse results
+    # Parse the structured footer written by the test script. Select-Object
+    # -Last 1 guards against any accidental duplicate matches earlier in output.
     $score       = ($testOutput | Select-String "^Score: (\d+)%"   | Select-Object -Last 1).Matches.Groups[1].Value
     $testsPassed = ($testOutput | Select-String "^Tests Passed: (\d+)").Matches.Groups[1].Value
     $testsFailed = ($testOutput | Select-String "^Tests Failed: (\d+)").Matches.Groups[1].Value
@@ -373,10 +420,18 @@ function Reset-Lab {
 }
 
 # ------------------------------------------------------------------
+# Main - Entry point
+#
+# The menu has two distinct states:
+#   Active lab:   options to continue, submit, abandon, or view report
+#   No active lab: options to start a lab or view report
+# Get-CurrentScenario is called once per loop iteration rather than once at
+# startup so it picks up state changes made by Check-Lab and Abandon-Lab.
 function Main {
     switch ($Action) {
-        # After Check-Lab returns (user chose to try another lab),
-        # fall through to the interactive menu loop below.
+        # Check-Lab either exits (user is done) or returns normally (user
+        # wants another lab). On return, fall through to the interactive
+        # menu loop so it redraws without a recursive call.
         "--check"   { Check-Lab }
         "--submit"  { Check-Lab }
         "--help"    { Show-Help;      exit 0 }
