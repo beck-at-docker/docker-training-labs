@@ -10,7 +10,9 @@
 #   troubleshootlinuxlab --reset      # Re-break the current lab to try again
 #   troubleshootlinuxlab --help       # Show help
 
-set -e
+# set -e is intentionally omitted. This is an interactive script with a menu
+# loop and functions that legitimately return non-zero (e.g. user cancels a
+# prompt). Errors are handled explicitly at each call site instead.
 
 # ------------------------------------------------------------------
 # Configuration
@@ -80,9 +82,7 @@ show_main_menu() {
         # No active lab - show the full lab selection menu
         echo "Select a training lab:"
         echo ""
-        echo "1. DNS Resolution Failure"
-        echo -e "   ${DIM}Difficulty: ** | Time: 15-20 min${NC}"
-        echo -e "   ${DIM}Learn: Container networking, iptables, DNS troubleshooting${NC}"
+        echo "1. Container Connections"
         echo ""
         echo "2. View my report card"
         echo "0. Exit"
@@ -101,27 +101,38 @@ show_lab_instructions() {
     case $lab in
         DNS)
             cat << 'EOF'
-Problem: Containers cannot resolve external hostnames
+Problem: docker pull fails with a DNS write error
 
-Your Docker Desktop containers are unable to reach external
-resources. Image pulls fail and containers cannot access the
-internet, even though your Linux host resolves DNS fine.
+The Docker daemon cannot resolve external hostnames. Image pulls
+fail immediately with an error like:
+
+  write udp ...: write: operation not permitted
+
+Your Linux host DNS works fine. Interestingly, nslookup inside a
+container may also appear to work. The daemon and containers
+use different DNS paths - that discrepancy is your first clue.
 
 Symptoms you should observe:
-  - docker pull commands fail with DNS errors
-  - Containers cannot ping google.com by name
-  - nslookup inside containers times out or fails
-  - Host machine DNS works without issue
+  - docker pull fails with "write: operation not permitted"
+  - Error references a DNS lookup on an internal IP (e.g. 192.168.65.x)
+  - Host machine DNS works fine
+  - docker run --rm alpine:latest nslookup google.com may succeed
 
 Diagnostic Commands to Try:
+  docker pull hello-world
+  docker info | grep -i dns
+  cat ~/.docker/daemon.json
   docker run --rm alpine:latest nslookup google.com
-  docker run --rm alpine:latest cat /etc/resolv.conf
-  docker run --rm alpine:latest ping -c 3 8.8.8.8
-  docker info
 
-Hint: The problem is below the Docker configuration layer.
-Think about what controls network traffic between the
-Docker Desktop VM and the outside world.
+If config looks clean, think about what sits between the daemon
+and the network. Check whether traffic is being blocked at a
+lower level inside the Docker VM:
+
+  docker run --rm --privileged --pid=host alpine:latest \
+    nsenter -t 1 -m -u -n -i sh -c 'iptables -L OUTPUT -n -v'
+
+Restarting Docker Desktop will clear the problem as a last
+resort, but try to find and remove the root cause first.
 EOF
             ;;
     esac
@@ -220,7 +231,7 @@ check_lab() {
     if ! bash "$test_script" > "$test_output" 2>&1; then
         echo -e "${RED}Test script encountered an error${NC}"
         cat "$test_output"
-        rm "$test_output"
+        rm -f "$test_output"
         exit 1
     fi
 
@@ -295,21 +306,24 @@ check_lab() {
     # Clear active lab state so a new one can be started
     clear_current_scenario
 
+    # Clean up temp file before the prompt - the prompt may exit the process
+    # or return to the caller's loop, both of which are fine.
+    rm -f "$test_output"
+
+    # "Yes" returns to the caller so the interactive menu loop in main()
+    # redraws naturally - no recursion needed. "No" exits.
     echo -e "${BLUE}==========================================${NC}"
     echo ""
     read -p "Would you like to try another lab? (y/N): " continue_training
-    if [ "$continue_training" = "y" ] || [ "$continue_training" = "Y" ]; then
-        main
-    else
+    if [ "$continue_training" != "y" ] && [ "$continue_training" != "Y" ]; then
         echo ""
         echo "Training session complete."
         echo ""
         echo "To review your overall progress, run:"
         echo "  troubleshootlinuxlab --report"
         echo ""
+        exit 0
     fi
-
-    rm "$test_output"
 }
 
 # ------------------------------------------------------------------
@@ -523,8 +537,9 @@ reset_lab() {
 main() {
     case "${1:-}" in
         --check|--submit)
+            # After check_lab returns (user chose to try another lab),
+            # fall through to the interactive menu loop below.
             check_lab
-            exit 0
             ;;
         --help|-h)
             show_help

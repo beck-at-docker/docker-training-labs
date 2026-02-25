@@ -33,17 +33,22 @@ with open('$temp_file', 'w') as f:
     mv "$temp_file" "$CONFIG_FILE"
 }
 
-# Reset scenario and clear start time
+# Reset scenario and start time to null in a single atomic write
 clear_current_scenario() {
-    set_current_scenario "null"
+    local temp_file
+    temp_file=$(mktemp)
+
     python3 -c "
 import json
 with open('$CONFIG_FILE', 'r') as f:
     data = json.load(f)
+data['current_scenario'] = None
 data['scenario_start_time'] = None
-with open('$CONFIG_FILE', 'w') as f:
+with open('$temp_file', 'w') as f:
     json.dump(data, f, indent=2)
 " 2>/dev/null
+
+    mv "$temp_file" "$CONFIG_FILE"
 }
 
 # Read epoch start time, defaulting to 0

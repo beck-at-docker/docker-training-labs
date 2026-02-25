@@ -58,11 +58,7 @@ echo ""
 # ------------------------------------------------------------------
 echo "Creating installation directories..."
 
-sudo mkdir -p "$INSTALL_DIR"
-sudo mkdir -p "$INSTALL_DIR/lib"
-sudo mkdir -p "$INSTALL_DIR/scenarios"
-sudo mkdir -p "$INSTALL_DIR/tests"
-mkdir -p "$STATE_DIR"
+sudo mkdir -p "$INSTALL_DIR/lib" "$INSTALL_DIR/scenarios" "$INSTALL_DIR/tests"
 mkdir -p "$STATE_DIR/reports"
 
 echo "  Directories created"
