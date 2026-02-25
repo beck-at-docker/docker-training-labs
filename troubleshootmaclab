@@ -324,9 +324,14 @@ check_lab() {
         exit 1
     fi
     
-    # Parse the test output with defaults for safety
+    # Parse structured output written by the test script. Each test script must
+    # write these three lines to stdout (see footer of each tests/test_*.sh file):
+    #   Score: <n>%
+    #   Tests Passed: <n>
+    #   Tests Failed: <n>
+    # Defaults to 0 for any field that is missing or unparseable.
     local score=$(grep "Score:" "$test_output" | grep -o '[0-9]\+' | head -1)
-    score=${score:-0}  # Default to 0 if empty
+    score=${score:-0}
     local tests_passed=$(grep "Tests Passed:" "$test_output" | grep -o '[0-9]\+')
     tests_passed=${tests_passed:-0}
     local tests_failed=$(grep "Tests Failed:" "$test_output" | grep -o '[0-9]\+')
@@ -565,12 +570,14 @@ show_report_card() {
 }
 
 # Abandon current lab
+# Returns 0 on successful abandon, 1 if there is no active lab or the user
+# cancels the confirmation prompt.
 abandon_lab() {
     local current=$(get_current_scenario)
     
     if [ -z "$current" ] || [ "$current" = "null" ]; then
         echo "No active lab to abandon."
-        return
+        return 1
     fi
     
     echo -e "${YELLOW}Abandoning lab: $current${NC}"
@@ -579,8 +586,10 @@ abandon_lab() {
     if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
         clear_current_scenario
         echo "Lab abandoned."
+        return 0
     else
         echo "Cancelled."
+        return 1
     fi
 }
 
@@ -673,9 +682,6 @@ main() {
                     ;;
                 3)
                     abandon_lab
-                    if [ "$?" -eq 0 ]; then
-                        continue
-                    fi
                     ;;
                 4)
                     show_report_card

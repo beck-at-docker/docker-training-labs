@@ -62,6 +62,7 @@ main() {
 
     score=$(calculate_score)
     echo ""
+    # Parsed by check_lab() in troubleshootmaclab. Format must stay: "Score: <n>%"
     echo "Score: $score%"
 
     if [ $score -ge 90 ]; then

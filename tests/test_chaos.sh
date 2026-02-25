@@ -108,6 +108,7 @@ main() {
 
     score=$(calculate_score)
     echo ""
+    # Parsed by check_lab() in troubleshootmaclab. Format must stay: "Score: <n>%"
     echo "Score: $score%"
     echo ""
 
