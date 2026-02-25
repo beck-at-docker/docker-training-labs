@@ -44,7 +44,7 @@ fi
 
 cd docker-training-labs
 
-echo "✅ Download complete"
+echo "Download complete"
 echo ""
 
 # Run installer

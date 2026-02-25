@@ -36,5 +36,5 @@ echo $! > /tmp/port_squatter_8080.pid
 docker run -d --name .hidden-postgres -p 5432:5432 \
     -e POSTGRES_PASSWORD=dummy postgres:alpine
 
-echo "✅ Ports blocked: 80, 443, 3306, 5432, 8080"
+echo "Ports blocked: 80, 443, 3306, 5432, 8080"
 echo "Symptoms: New containers will fail to bind ports with 'address already in use'"

@@ -59,15 +59,15 @@ export NO_PROXY=
 EOF
 
 echo ""
-echo "⚠️  IMPORTANT: You must restart Docker Desktop for daemon.json changes to take effect!"
-echo "⚠️  You must also restart your terminal or run: source $SHELL_RC"
+echo "IMPORTANT: You must restart Docker Desktop for daemon.json changes to take effect!"
+echo "You must also restart your terminal or run: source $SHELL_RC"
 echo ""
 echo "To restart Docker Desktop:"
 echo "  1. Click the Docker whale icon in your menu bar"
 echo "  2. Select 'Restart'"
 echo "  3. Wait for Docker Desktop to fully restart"
 echo ""
-echo "✅ Proxy configuration broken in:"
+echo "Proxy configuration broken in:"
 echo "   - $DOCKER_CONFIG (requires Docker restart)"
 echo "   - $SHELL_RC (requires terminal restart)"
 echo ""
