@@ -45,7 +45,10 @@ cat > "$DOCKER_CONFIG" << 'EOF'
 EOF
 
 # Method 2: Set conflicting environment variables in shell RC files
-# Detect which shell RC file to modify
+# Detect which shell RC file to modify.
+# Note: this script is always invoked via 'bash break_proxy.sh', so
+# $ZSH_VERSION is always unset regardless of the user's default shell.
+# The file-existence checks do the real detection work.
 if [ -n "$ZSH_VERSION" ] || [ -f "$HOME/.zshrc" ]; then
     SHELL_RC="$HOME/.zshrc"
 elif [ -n "$BASH_VERSION" ] || [ -f "$HOME/.bash_profile" ]; then

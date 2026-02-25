@@ -74,8 +74,12 @@ echo ""
 # the real home directory. The eval echo ~ trick expands ~ for an arbitrary
 # username without requiring getent or dscl.
 #
-# State files (config.json, grades.csv) are bootstrapped on first run by
-# the main script, so we only create directories here.
+# State files (config.json, grades.csv) are intentionally NOT written here.
+# Writing them under sudo would create root-owned files that the trainee
+# (running as a normal user) cannot update at runtime. Instead, the main
+# script bootstraps them on first run when it is executing as the trainee.
+# (Contrast with the Linux installer, which writes config.json directly
+# because it runs the install as the trainee's user, not as root.)
 echo "Initializing training environment..."
 USER_HOME=$(eval echo ~"${SUDO_USER:-$USER}")
 STATE_DIR="$USER_HOME/.docker-training-labs"
