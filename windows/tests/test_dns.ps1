@@ -55,15 +55,9 @@ Write-Host ""
 $reportFile = Generate-Report "DNS_Scenario"
 
 $score = Calculate-Score
-Write-Host ""
-# Parsed by Check-Lab in troubleshootwinlab.ps1. Format must stay: "Score: <n>%"
-Write-Host "Score: $score%"
 
-if ($score -ge 90)    { Write-Host "Grade: A - Excellent work!" }
-elseif ($score -ge 80){ Write-Host "Grade: B - Good job!" }
-elseif ($score -ge 70){ Write-Host "Grade: C - Passing" }
-else                  { Write-Host "Grade: F - Needs improvement" }
-
+# Parsed by Check-Lab in troubleshootwinlab.ps1.
+# Format must stay exactly: "Score: <n>%", "Tests Passed: <n>", "Tests Failed: <n>"
 Write-Host ""
 Write-Host "Score: $score%"
 Write-Host "Tests Passed: $script:TESTS_PASSED"
