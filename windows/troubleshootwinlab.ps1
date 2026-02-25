@@ -59,26 +59,38 @@ function Show-LabInstructions {
     switch ($Lab) {
         "DNS" {
             Write-Host @"
-Problem: Containers cannot resolve external hostnames
+Problem: docker pull fails with a DNS write error
 
-Your Docker Desktop containers are unable to access external
-resources. Image pulls fail, and containers cannot reach the
-internet even though your Windows host can.
+The Docker daemon cannot resolve external hostnames. Image pulls
+fail immediately with an error like:
+
+  write udp ...: write: operation not permitted
+
+Your Windows host DNS works fine. Interestingly, nslookup inside
+a container may also appear to work. The daemon and containers
+use different DNS paths - that discrepancy is your first clue.
 
 Symptoms you should observe:
-  - docker pull commands fail with DNS errors
-  - Containers cannot ping google.com by name
-  - nslookup inside containers fails or times out
+  - docker pull fails with "write: operation not permitted"
+  - Error references a DNS lookup on an internal IP (e.g. 192.168.65.x)
   - Host machine DNS works fine
+  - docker run --rm alpine:latest nslookup google.com may succeed
 
 Diagnostic Commands to Try:
+  docker pull hello-world
+  docker info | Select-String dns
+  cat $env:USERPROFILE\.docker\daemon.json
   docker run --rm alpine:latest nslookup google.com
-  docker run --rm alpine:latest cat /etc/resolv.conf
-  docker run --rm alpine:latest ping -c 3 8.8.8.8
-  docker info
 
-Hint: The problem is below the Docker configuration layer.
-Think about what sits between containers and the network.
+If config looks clean, think about what sits between the daemon
+and the network. Check whether traffic is being blocked at a
+lower level inside the Docker VM:
+
+  docker run --rm --privileged --pid=host alpine:latest ``
+    nsenter -t 1 -m -u -n -i sh -c 'iptables -L OUTPUT -n -v'
+
+Restarting Docker Desktop will clear the problem as a last
+resort, but try to find and remove the root cause first.
 "@
         }
     }
