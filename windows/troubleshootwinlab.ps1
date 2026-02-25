@@ -353,6 +353,9 @@ function Show-ReportCard {
     $labCount   = 0
     $dnsScore   = $null
 
+    # Each scenario variable is overwritten on every matching row, so if a
+    # trainee attempted the same lab multiple times only the last score is
+    # shown. All attempts count toward the overall average.
     Import-Csv $GRADES_FILE | Where-Object { $_.trainee_id -eq $env:USERNAME } | ForEach-Object {
         switch ($_.scenario) {
             "DNS" { $dnsScore = "$($_.score)%" }
