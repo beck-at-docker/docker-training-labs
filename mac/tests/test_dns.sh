@@ -29,10 +29,6 @@ echo ""
 test_fixed_state() {
     log_info "Testing fixed state"
 
-    # Basic sanity: daemon must be responsive
-    run_test "Docker daemon is running" \
-        "docker info > /dev/null"
-
     # Primary functional test: the daemon must be able to resolve registry
     # hostnames. This is the operation the break actually broke.
     run_test "docker pull succeeds (daemon DNS is working)" \
