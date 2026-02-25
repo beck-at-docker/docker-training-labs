@@ -1,7 +1,9 @@
 #!/bin/bash
 # troubleshootmaclab - Main training lab CLI
 
-set -e
+# set -e is intentionally omitted. This is an interactive script with a menu
+# loop and functions that legitimately return non-zero (e.g. user cancels a
+# prompt). Errors are handled explicitly at each call site instead.
 
 # Configuration
 INSTALL_DIR="/usr/local/lib/docker-training-labs"
@@ -314,17 +316,22 @@ check_lab() {
     local scenario_lower=$(echo "$current_scenario" | tr '[:upper:]' '[:lower:]')
     local test_script="$INSTALL_DIR/tests/test_${scenario_lower}.sh"
     local test_output=$(mktemp)
-    
-    if ! bash "$test_script" fixed > "$test_output" 2>&1; then
+
+    if ! bash "$test_script" > "$test_output" 2>&1; then
         echo -e "${RED}Test script failed to run${NC}"
         cat "$test_output"
-        rm "$test_output"
+        rm -f "$test_output"
         exit 1
     fi
     
-    # Parse the test output with defaults for safety
+    # Parse structured output written by the test script. Each test script must
+    # write these three lines to stdout (see footer of each tests/test_*.sh file):
+    #   Score: <n>%
+    #   Tests Passed: <n>
+    #   Tests Failed: <n>
+    # Defaults to 0 for any field that is missing or unparseable.
     local score=$(grep "Score:" "$test_output" | grep -o '[0-9]\+' | head -1)
-    score=${score:-0}  # Default to 0 if empty
+    score=${score:-0}
     local tests_passed=$(grep "Tests Passed:" "$test_output" | grep -o '[0-9]\+')
     tests_passed=${tests_passed:-0}
     local tests_failed=$(grep "Tests Failed:" "$test_output" | grep -o '[0-9]\+')
@@ -387,23 +394,25 @@ check_lab() {
     
     # Clear the current scenario
     clear_current_scenario
-    
-    # Offer to continue
+
+    # Clean up temp file now - before the prompt, since the prompt may exit
+    # the process or return to the caller's loop, both of which are fine.
+    rm -f "$test_output"
+
+    # Offer to continue. "Yes" returns to the caller so the interactive menu
+    # loop in main() redraws naturally - no recursion needed. "No" exits.
     echo -e "${BLUE}==========================================${NC}"
     echo ""
     read -p "Would you like to try another lab? (y/N): " continue_training
-    if [ "$continue_training" = "y" ] || [ "$continue_training" = "Y" ]; then
-        main
-    else
+    if [ "$continue_training" != "y" ] && [ "$continue_training" != "Y" ]; then
         echo ""
         echo "Training session complete. Great work!"
         echo ""
         echo "To see your overall progress, run:"
         echo "  troubleshootmaclab --report"
         echo ""
+        exit 0
     fi
-    
-    rm "$test_output"
 }
 
 # Show help
@@ -491,7 +500,7 @@ show_report_card() {
     echo -e "==========================================${NC}"
     echo ""
     
-    if [ ! -f "$GRADES_FILE" ] || [ $(wc -l < "$GRADES_FILE") -le 1 ]; then
+    if [ ! -f "$GRADES_FILE" ] || [ "$(wc -l < "$GRADES_FILE")" -le 1 ]; then
         echo "No labs completed yet."
         echo ""
         echo "Start your first lab with:"
@@ -563,12 +572,14 @@ show_report_card() {
 }
 
 # Abandon current lab
+# Returns 0 on successful abandon, 1 if there is no active lab or the user
+# cancels the confirmation prompt.
 abandon_lab() {
     local current=$(get_current_scenario)
     
     if [ -z "$current" ] || [ "$current" = "null" ]; then
         echo "No active lab to abandon."
-        return
+        return 1
     fi
     
     echo -e "${YELLOW}Abandoning lab: $current${NC}"
@@ -577,8 +588,10 @@ abandon_lab() {
     if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
         clear_current_scenario
         echo "Lab abandoned."
+        return 0
     else
         echo "Cancelled."
+        return 1
     fi
 }
 
@@ -615,8 +628,9 @@ main() {
     # Handle command line arguments
     case "${1:-}" in
         --check|--submit)
+            # After check_lab returns (user chose to try another lab),
+            # fall through to the interactive menu loop below.
             check_lab
-            exit 0
             ;;
         --help|-h)
             show_help
@@ -671,9 +685,6 @@ main() {
                     ;;
                 3)
                     abandon_lab
-                    if [ "$?" -eq 0 ]; then
-                        continue
-                    fi
                     ;;
                 4)
                     show_report_card

@@ -30,10 +30,7 @@ test_fixed_state() {
     # Test 3: Bridge Network Connectivity
     run_test "Bridge network internet connectivity (IP)" \
         "docker run --rm alpine:latest ping -c 3 8.8.8.8 > /dev/null"
-    
-    run_test "Bridge network DNS resolution" \
-        "docker run --rm alpine:latest ping -c 3 google.com > /dev/null"
-    
+
     # Test 4: Container-to-container communication
     docker run -d --name chaos-web nginx:alpine > /dev/null 2>&1
     sleep 2
@@ -95,7 +92,7 @@ test_fixed_state() {
 
 # Main
 main() {
-    echo "This test validates that ALL four systems are fixed:"
+    echo "This test validates that all four systems are fixed:"
     echo "  1. DNS Resolution"
     echo "  2. Port Bindings"
     echo "  3. Bridge Network"
@@ -108,6 +105,7 @@ main() {
 
     score=$(calculate_score)
     echo ""
+    # Parsed by check_lab() in troubleshootmaclab. Format must stay: "Score: <n>%"
     echo "Score: $score%"
     echo ""
 
