@@ -18,13 +18,19 @@
 # content is written to a temp file first, then atomically renamed into
 # place. This prevents a half-written config if the process is interrupted.
 
-# Get current scenario name from config, or "null" if unset
+# Get current scenario name from config, or "null" if unset or null.
+# Note: json.load returns Python None for JSON null values. print(None)
+# outputs the string "None", not "null", so we must handle it explicitly.
 get_current_scenario() {
     if [ ! -f "$CONFIG_FILE" ]; then
         echo "null"
         return
     fi
-    python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('current_scenario', 'null'))" 2>/dev/null || echo "null"
+    python3 -c "
+import json
+val = json.load(open('$CONFIG_FILE')).get('current_scenario')
+print(val if val is not None else 'null')
+" 2>/dev/null || echo "null"
 }
 
 # Write the current scenario name into config
@@ -72,13 +78,18 @@ with open('$temp_file', 'w') as f:
     mv "$temp_file" "$CONFIG_FILE"
 }
 
-# Read epoch start time, defaulting to 0
+# Read epoch start time, defaulting to 0 if unset or null.
+# Same None vs 'null' issue as get_current_scenario: handle explicitly.
 get_scenario_start_time() {
     if [ ! -f "$CONFIG_FILE" ]; then
         echo "0"
         return
     fi
-    python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('scenario_start_time', 0))" 2>/dev/null || echo "0"
+    python3 -c "
+import json
+val = json.load(open('$CONFIG_FILE')).get('scenario_start_time')
+print(val if val is not None else 0)
+" 2>/dev/null || echo "0"
 }
 
 # Write epoch start time into config
