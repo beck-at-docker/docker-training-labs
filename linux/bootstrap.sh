@@ -2,10 +2,10 @@
 # bootstrap.sh - One-command installer for Docker Desktop Training Labs (Linux)
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/beck-at-docker/docker-training-labs-linux/main/lab/bootstrap.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/beck-at-docker/docker-training-labs-linux/main/bootstrap.sh | bash
 #
 # Override branch:
-#   BRANCH=dev curl -fsSL https://raw.githubusercontent.com/beck-at-docker/docker-training-labs-linux/main/lab/bootstrap.sh | bash
+#   BRANCH=dev curl -fsSL https://raw.githubusercontent.com/beck-at-docker/docker-training-labs-linux/main/bootstrap.sh | bash
 
 set -e
 
@@ -74,7 +74,7 @@ else
     mv "docker-training-labs-linux-${BRANCH}" docker-training-labs
 fi
 
-cd docker-training-labs/lab
+cd docker-training-labs
 
 echo "  Download complete"
 echo ""
