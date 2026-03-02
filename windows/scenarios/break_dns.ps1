@@ -13,7 +13,7 @@
 # Fix path: remove the DROP rules via nsenter (full marks), or restart Docker
 # Desktop as a last resort.
 
-Write-Host "Breaking Docker Desktop DNS resolution..."
+Write-Host "Breaking Docker Desktop ..."
 
 # Verify Docker Desktop is running
 docker info 2>&1 | Out-Null
@@ -37,5 +37,5 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host ""
-Write-Host "Docker Desktop DNS resolution broken"
-Write-Host "Symptom: docker pull and registry access fail with DNS errors"
+Write-Host "Docker Desktop broken"
+Write-Host "Symptom: docker pulls fail"
