@@ -14,7 +14,7 @@
 
 set -e
 
-echo "Breaking port availability..."
+echo "Breaking Docker Desktop..."
 
 # Clean up any existing port squatter containers first
 docker rm -f port-squatter-80 port-squatter-443 port-squatter-3306 .hidden-postgres 2>/dev/null || true
@@ -47,5 +47,5 @@ echo $! > /tmp/port_squatter_8080.pid
 docker run -d --name .hidden-postgres -p 5432:5432 \
     -e POSTGRES_PASSWORD=dummy postgres:alpine
 
-echo "Ports blocked: 80, 443, 3306, 5432, 8080"
-echo "Symptoms: New containers will fail to bind ports with 'address already in use'"
+echo "Docker Desktop broken ..."
+echo "Symptoms: New containers will fail to bind with 'address already in use'"

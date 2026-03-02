@@ -16,7 +16,7 @@
 
 set -e
 
-echo "Breaking Docker Desktop DNS resolution..."
+echo "Breaking Docker Desktop ..."
 
 # Verify Docker Desktop is running
 if ! docker info &>/dev/null; then
@@ -38,5 +38,5 @@ if ! docker run --rm --privileged --pid=host alpine:latest \
 fi
 
 echo ""
-echo "Docker Desktop DNS resolution broken"
-echo "Symptom: docker pull and registry access fail with DNS errors"
+echo "Docker Desktop broken"
+echo "Symptom: docker pulls fail"

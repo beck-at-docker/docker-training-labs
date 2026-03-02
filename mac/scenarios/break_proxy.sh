@@ -19,7 +19,7 @@
 
 set -e
 
-echo "Breaking proxy configuration..."
+echo "Breaking Docker Desktop..."
 
 # Generate timestamp once for consistent backup naming
 BACKUP_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -78,7 +78,7 @@ export NO_PROXY=
 EOF
 
 echo ""
-echo "IMPORTANT: You must restart Docker Desktop for daemon.json changes to take effect!"
+echo "IMPORTANT: You must restart Docker Desktop for changes to take effect!"
 echo "You must also restart your terminal or run: source $SHELL_RC"
 echo ""
 echo "To restart Docker Desktop:"
@@ -98,4 +98,5 @@ if [ -n "$DAEMON_BACKUP_CREATED" ] || [ -n "$SHELL_BACKUP_CREATED" ]; then
     echo ""
 fi
 
+echo "Docker Desktop broken..."
 echo "Symptoms: Image pulls fail, container internet access fails"

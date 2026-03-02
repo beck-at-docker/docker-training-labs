@@ -19,7 +19,7 @@
 
 set -e
 
-echo "Corrupting Docker bridge network..."
+echo "Breaking Docker Desktop..."
 
 # Remove any existing fake bridge networks first
 docker network rm fake-bridge-1 fake-bridge-2 2>/dev/null || true
@@ -54,5 +54,5 @@ docker run --rm --privileged --pid=host alpine:latest nsenter -t 1 -m -u -n -i s
 docker run -d --name broken-web nginx:alpine
 docker run -d --name broken-app alpine:latest sleep 3600
 
-echo "Bridge network corrupted"
+echo "Docker Desktop broken"
 echo "Symptoms: Containers can't reach each other or internet"
