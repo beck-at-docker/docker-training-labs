@@ -99,10 +99,13 @@ echo ""
 # ------------------------------------------------------------------
 echo "Initialising training environment..."
 
+# Write the initial config file. This runs as the trainee's user (not root),
+# so the file is owned correctly and can be updated at runtime.
+# Contrast with Mac install.sh, which runs as root via sudo and therefore
+# defers config creation to the main script's first-run bootstrap.
 cat > "$STATE_DIR/config.json" << EOF
 {
   "version": "1.0.0",
-  "install_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "trainee_id": "$USER",
   "current_scenario": null,
   "scenario_start_time": null
