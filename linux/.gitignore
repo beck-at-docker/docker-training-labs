@@ -1,0 +1,19 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# State and output files created at runtime
+*.csv
+*.log
+reports/
+/tmp/docker_training_tests/
+
+# Editor swap files and backups
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Distribution / packaging
+*.tar.gz
+*.zip
