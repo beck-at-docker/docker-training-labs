@@ -47,12 +47,17 @@ cd docker-training-labs
 echo "Download complete"
 echo ""
 
+# Capture absolute path before handing off to sudo, which may reset CWD.
+# Using 'sudo bash <path>' matches the Linux bootstrap pattern and avoids
+# the 'command not found' error caused by sudo resolving relative paths.
+INSTALL_SCRIPT="$(pwd)/install.sh"
+
 # Run installer
 echo "Installing (requires sudo)..."
 if [ "$EUID" -eq 0 ]; then
-    ./install.sh
+    bash "$INSTALL_SCRIPT"
 else
-    sudo ./install.sh
+    sudo bash "$INSTALL_SCRIPT"
 fi
 
 # Cleanup
