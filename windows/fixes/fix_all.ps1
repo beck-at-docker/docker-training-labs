@@ -11,6 +11,7 @@ Write-Host "=========================================="
 Write-Host ""
 Write-Host "This will fix:"
 Write-Host "  1. DNS Resolution"
+Write-Host "  2. Proxy Configuration"
 Write-Host ""
 $confirm = Read-Host "Continue? (y/N)"
 if ($confirm -notmatch "^[yY]$") {
@@ -21,8 +22,14 @@ if ($confirm -notmatch "^[yY]$") {
 Write-Host ""
 Write-Host "=========================================="
 Write-Host ""
-Write-Host "[1/1] Fixing DNS Resolution..."
+Write-Host "[1/2] Fixing DNS Resolution..."
 & "$SCRIPT_DIR\fix_dns.ps1"
+
+Write-Host ""
+Write-Host "=========================================="
+Write-Host ""
+Write-Host "[2/2] Fixing Proxy Configuration..."
+& "$SCRIPT_DIR\fix_proxy.ps1"
 
 Write-Host ""
 Write-Host "=========================================="

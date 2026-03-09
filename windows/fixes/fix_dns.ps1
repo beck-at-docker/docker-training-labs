@@ -4,8 +4,29 @@
 # The DNS break injects two iptables DROP rules for port 53 into the Docker
 # Desktop VM's OUTPUT chain via nsenter. This script removes those rules
 # using the same mechanism.
+#
+# After repairing the environment, this script also resets the lab state in
+# $HOME\.docker-training-labs\config.json so troubleshootwinlab sees no active lab.
 
 $ErrorActionPreference = "Stop"
+
+# Reset the training lab state file so the CLI sees no active scenario.
+# Mirrors the logic in lib/state.ps1 without requiring it to be dot-sourced.
+# Uses Add-Member -Force to set properties on the PSCustomObject, which is
+# required in PS5.1 (direct property assignment on ConvertFrom-Json objects
+# is unreliable).
+function Reset-LabState {
+    $configFile = Join-Path $HOME ".docker-training-labs\config.json"
+    if (-not (Test-Path $configFile)) { return }
+    try {
+        $data = Get-Content $configFile -Raw | ConvertFrom-Json
+    } catch {
+        $data = [PSCustomObject]@{}
+    }
+    $data | Add-Member -MemberType NoteProperty -Name current_scenario    -Value $null -Force
+    $data | Add-Member -MemberType NoteProperty -Name scenario_start_time -Value $null -Force
+    $data | ConvertTo-Json | Set-Content $configFile -Encoding UTF8
+}
 
 Write-Host "Fixing Docker Desktop DNS..."
 
@@ -41,3 +62,7 @@ if ($LASTEXITCODE -eq 0) {
 } else {
     Write-Host "DNS still broken - may need Docker Desktop restart"
 }
+
+# Reset the lab state last, after the environment is repaired.
+Reset-LabState
+Write-Host "Lab state reset: no active scenario"
