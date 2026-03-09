@@ -26,7 +26,7 @@ test_fixed_state() {
     
     # Verify squatter containers are gone
     local squatters
-    squatters=$(docker ps -a --filter "name=port-squatter" --filter "name=.hidden" --format "{{.Names}}")
+    squatters=$(docker ps -a --filter "name=port-squatter" --filter "name=background-db" --format "{{.Names}}")
     log_test "All port squatter containers removed"
     if [ -z "$squatters" ]; then
         log_pass "All port squatter containers removed"

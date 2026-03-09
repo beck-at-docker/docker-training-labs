@@ -4,8 +4,8 @@
 # Occupies five ports that trainees are likely to need:
 #   80, 443  - nginx containers named 'port-squatter-*' (easy to find with docker ps)
 #   3306     - mysql container (slightly harder - requires knowing the port)
-#   5432     - postgres container named '.hidden-postgres' (leading dot hides it
-#              from naive 'docker ps' name filters and makes it less obvious)
+#   5432     - postgres container named 'background-db' (generic name blends in
+#              with real infrastructure; less obvious than 'squatter-*' names)
 #   8080     - python3 http.server process on the host (not a container at all;
 #              trainees must look beyond 'docker ps' to find and kill it)
 #
@@ -17,7 +17,7 @@ set -e
 echo "Breaking Docker Desktop..."
 
 # Clean up any existing port squatter containers first
-docker rm -f port-squatter-80 port-squatter-443 port-squatter-3306 .hidden-postgres 2>/dev/null || true
+docker rm -f port-squatter-80 port-squatter-443 port-squatter-3306 background-db 2>/dev/null || true
 
 # Kill any existing Python HTTP server on port 8080
 if [ -f /tmp/port_squatter_8080.pid ]; then
@@ -43,8 +43,9 @@ docker run -d --name port-squatter-3306 -p 3306:3306 mysql:8 \
 nohup python3 -m http.server 8080 </dev/null >/dev/null 2>&1 &
 echo $! > /tmp/port_squatter_8080.pid
 
-# Create a hidden container that will persist
-docker run -d --name .hidden-postgres -p 5432:5432 \
+# Create a less obvious container on port 5432 - the generic name 'background-db'
+# blends in with real infrastructure and is harder to spot than 'squatter-*'.
+docker run -d --name background-db -p 5432:5432 \
     -e POSTGRES_PASSWORD=dummy postgres:alpine
 
 echo "Docker Desktop broken ..."
