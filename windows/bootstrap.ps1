@@ -1,16 +1,16 @@
 # bootstrap.ps1 - One-command installer for Docker Desktop Training Labs (Windows)
 #
 # Usage (run from any PowerShell window - elevation is handled automatically):
-#   irm https://raw.githubusercontent.com/beck-at-docker/docker-training-labs-windows/main/lab/bootstrap.ps1 | iex
+#   irm https://raw.githubusercontent.com/beck-at-docker/docker-training-labs/main/windows/bootstrap.ps1 | iex
 #
 # Override branch:
-#   $env:BRANCH="dev"; irm https://raw.githubusercontent.com/beck-at-docker/docker-training-labs-windows/main/lab/bootstrap.ps1 | iex
+#   $env:BRANCH="dev"; irm https://raw.githubusercontent.com/beck-at-docker/docker-training-labs/main/windows/bootstrap.ps1 | iex
 
 #Requires -Version 5.1
 
 $ErrorActionPreference = "Stop"
 
-$GITHUB_REPO = "beck-at-docker/docker-training-labs-windows"
+$GITHUB_REPO = "beck-at-docker/docker-training-labs"
 $BRANCH      = if ($env:BRANCH) { $env:BRANCH } else { "main" }
 $ZIP_URL     = "https://github.com/$GITHUB_REPO/archive/refs/heads/$BRANCH.zip"
 
@@ -38,7 +38,7 @@ if (-not $isAdmin) {
     Write-Host "Administrator privileges required."
     Write-Host "Re-launching in an elevated window..."
     Write-Host ""
-    $scriptUrl = "https://raw.githubusercontent.com/$GITHUB_REPO/refs/heads/$BRANCH/lab/bootstrap.ps1"
+    $scriptUrl = "https://raw.githubusercontent.com/$GITHUB_REPO/refs/heads/$BRANCH/windows/bootstrap.ps1"
     $elevatedCmd = "& { `$env:BRANCH='$BRANCH'; irm '$scriptUrl' | iex }"
     Start-Process powershell -Verb RunAs -ArgumentList "-ExecutionPolicy", "Bypass", "-Command", $elevatedCmd -Wait
     exit 0
@@ -108,8 +108,8 @@ if (-not $repoRoot) {
     pause; exit 1
 }
 
-# lab files live under lab/ within the repo root
-$labDir = Join-Path $repoRoot.FullName "lab"
+# windows lab files live under windows/ within the repo root
+$labDir = Join-Path $repoRoot.FullName "windows"
 $installScript = Join-Path $labDir "install.ps1"
 if (-not (Test-Path $installScript)) {
     Write-Host "ERROR: install.ps1 not found. Expected: $installScript"

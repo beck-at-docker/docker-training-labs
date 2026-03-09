@@ -2,14 +2,14 @@
 # bootstrap.sh - One-command installer for Docker Desktop Training Labs (Linux)
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/beck-at-docker/docker-training-labs-linux/main/bootstrap.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/beck-at-docker/docker-training-labs/main/linux/bootstrap.sh | bash
 #
 # Override branch:
-#   BRANCH=dev curl -fsSL https://raw.githubusercontent.com/beck-at-docker/docker-training-labs-linux/main/bootstrap.sh | bash
+#   BRANCH=dev curl -fsSL https://raw.githubusercontent.com/beck-at-docker/docker-training-labs/main/linux/bootstrap.sh | bash
 
 set -e
 
-GITHUB_REPO="beck-at-docker/docker-training-labs-linux"
+GITHUB_REPO="beck-at-docker/docker-training-labs"
 BRANCH="${BRANCH:-main}"
 TEMP_DIR=$(mktemp -d)
 
@@ -71,7 +71,7 @@ else
     echo "git not found - downloading tarball instead..."
     curl -fsSL "https://github.com/${GITHUB_REPO}/archive/refs/heads/${BRANCH}.tar.gz" \
         | tar -xz
-    mv "docker-training-labs-linux-${BRANCH}" docker-training-labs
+    mv "docker-training-labs-${BRANCH}" docker-training-labs
 fi
 
 cd docker-training-labs
