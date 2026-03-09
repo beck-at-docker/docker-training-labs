@@ -11,8 +11,8 @@
 #
 # Output contract (parsed by Check-Lab in troubleshootwinlab.ps1):
 #   Score: <n>%
-#   Tests Passed: <n>
-#   Tests Failed: <n>
+#   Tests Passed: <n>    <- written by Generate-Report
+#   Tests Failed: <n>    <- written by Generate-Report
 
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
 . "$SCRIPT_DIR\test_framework.ps1"
@@ -56,9 +56,8 @@ $reportFile = Generate-Report "DNS_Scenario"
 
 $score = Calculate-Score
 
-# Parsed by Check-Lab in troubleshootwinlab.ps1.
-# Format must stay exactly: "Score: <n>%", "Tests Passed: <n>", "Tests Failed: <n>"
+# Only Score: is written here. Tests Passed: and Tests Failed: are written
+# by Generate-Report above. Writing them again would cause Check-Lab to see
+# duplicate lines and parse the wrong values.
 Write-Host ""
 Write-Host "Score: $score%"
-Write-Host "Tests Passed: $script:TESTS_PASSED"
-Write-Host "Tests Failed: $script:TESTS_FAILED"
