@@ -10,17 +10,17 @@
 #   lib/state.sh     - Read/write ~/.docker-training-labs/config.json
 #   lib/grading.sh   - Append rows to ~/.docker-training-labs/grades.csv
 #
-#   scenarios/break_<name>.sh  - Deliberately corrupt Docker Desktop
-#   tests/test_<name>.sh       - Verify the scenario has been fixed
-#   fixes/fix_<name>.sh        - Dev-only restore scripts (not for trainees)
+#   scenarios/break_<n>.sh  - Deliberately corrupt Docker Desktop
+#   tests/test_<n>.sh       - Verify the scenario has been fixed
+#   fixes/fix_<n>.sh        - Dev-only restore scripts (not for trainees)
 #
 # Lab lifecycle
 # -------------
 #   1. Trainee selects a lab from the menu (or passes a number to start_lab)
-#   2. start_lab runs scenarios/break_<name>.sh and records the scenario
+#   2. start_lab runs scenarios/break_<n>.sh and records the scenario
 #      name and start timestamp in config.json via lib/state.sh
 #   3. Trainee diagnoses and fixes Docker Desktop manually
-#   4. --check runs tests/test_<name>.sh, captures its stdout, parses the
+#   4. --check runs tests/test_<n>.sh, captures its stdout, parses the
 #      structured footer, records the grade, and prints feedback
 #   5. config.json is cleared so a new lab can be started
 #
@@ -396,12 +396,14 @@ check_lab() {
     #   Score: <n>%
     #   Tests Passed: <n>
     #   Tests Failed: <n>
+    # The ^ anchor ensures we only match lines that start with the field name,
+    # preventing false matches from other output that contains these substrings.
     # Defaults to 0 for any field that is missing or unparseable.
-    local score=$(grep "Score:" "$test_output" | grep -o '[0-9]\+' | head -1)
+    local score=$(grep "^Score:" "$test_output" | grep -o '[0-9]\+' | head -1)
     score=${score:-0}
-    local tests_passed=$(grep "Tests Passed:" "$test_output" | grep -o '[0-9]\+')
+    local tests_passed=$(grep "^Tests Passed:" "$test_output" | grep -o '[0-9]\+')
     tests_passed=${tests_passed:-0}
-    local tests_failed=$(grep "Tests Failed:" "$test_output" | grep -o '[0-9]\+')
+    local tests_failed=$(grep "^Tests Failed:" "$test_output" | grep -o '[0-9]\+')
     tests_failed=${tests_failed:-0}
     
     # Calculate duration
