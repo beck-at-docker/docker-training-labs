@@ -1,8 +1,35 @@
 #!/bin/bash
 # fix_proxy.sh - Remove broken proxy configuration
 # FOR DEVELOPMENT/TESTING ONLY - Not for trainees
+#
+# After repairing the environment, this script also resets the lab state in
+# ~/.docker-training-labs/config.json so troubleshootlinuxlab sees no active lab.
 
 set -e
+
+# Reset the training lab state file so the CLI sees no active scenario.
+# Mirrors the logic in lib/state.sh without requiring it to be sourced.
+_reset_lab_state() {
+    local config_file="$HOME/.docker-training-labs/config.json"
+    if [ ! -f "$config_file" ]; then
+        return
+    fi
+    local version
+    local trainee
+    version=$(grep '"version"' "$config_file" | sed 's/.*"version": *"//;s/".*//' | head -1)
+    trainee=$(grep '"trainee_id"' "$config_file" | sed 's/.*"trainee_id": *"//;s/".*//' | head -1)
+    local temp_file
+    temp_file=$(mktemp)
+    cat > "$temp_file" << EOF
+{
+  "version": "${version:-1.0.0}",
+  "trainee_id": "${trainee:-$USER}",
+  "current_scenario": null,
+  "scenario_start_time": null
+}
+EOF
+    mv "$temp_file" "$config_file"
+}
 
 echo "Removing broken proxy configuration..."
 
@@ -83,3 +110,7 @@ if docker pull hello-world > /dev/null 2>&1; then
 else
     echo "  Registry access not working yet (restart Docker Desktop)"
 fi
+
+# Reset the lab state last, after the environment is repaired.
+_reset_lab_state
+echo "Lab state reset: no active scenario"
