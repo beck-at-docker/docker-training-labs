@@ -430,20 +430,23 @@ function Reset-Lab {
 #   No active lab: options to start a lab or view report
 # Get-CurrentScenario is called once per loop iteration rather than once at
 # startup so it picks up state changes made by Check-Lab and Abandon-Lab.
+#
+# Note on PowerShell switch fall-through: unlike bash case, PowerShell switch
+# continues matching after a case runs unless it hits break, return, or exit.
+# The --check and --submit cases call Check-Lab (which may return rather than
+# exit), so they need an explicit break to prevent the default case from
+# also running and printing "Unknown option".
 function Main {
     switch ($Action) {
-        # Check-Lab either exits (user is done) or returns normally (user
-        # wants another lab). On return, fall through to the interactive
-        # menu loop so it redraws without a recursive call.
-        "--check"   { Check-Lab }
-        "--submit"  { Check-Lab }
-        "--help"    { Show-Help;      exit 0 }
-        "-h"        { Show-Help;      exit 0 }
-        "--status"  { Show-Status;    exit 0 }
+        "--check"   { Check-Lab; break }
+        "--submit"  { Check-Lab; break }
+        "--help"    { Show-Help;       exit 0 }
+        "-h"        { Show-Help;       exit 0 }
+        "--status"  { Show-Status;     exit 0 }
         "--report"  { Show-ReportCard; exit 0 }
         "--grades"  { Show-ReportCard; exit 0 }
-        "--abandon" { Abandon-Lab;    exit 0 }
-        "--reset"   { Reset-Lab;      exit 0 }
+        "--abandon" { Abandon-Lab;     exit 0 }
+        "--reset"   { Reset-Lab;       exit 0 }
         { $_ -ne "" } {
             Write-Host "Unknown option: $Action"
             Write-Host "Run 'troubleshootwinlab --help' for usage information."
