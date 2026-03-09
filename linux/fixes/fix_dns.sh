@@ -1,5 +1,5 @@
 #!/bin/bash
-# fixes/fix_dns.sh - Restore Docker daemon DNS resolution in Docker Desktop
+# fix_dns.sh - Restore Docker daemon DNS resolution in Docker Desktop
 # FOR DEVELOPMENT/TESTING ONLY - Not for trainees
 #
 # The DNS break injects two iptables DROP rules for port 53 into the Docker
@@ -33,7 +33,6 @@ echo ""
 echo "Verifying DNS resolution..."
 if docker pull hello-world > /dev/null 2>&1; then
     echo "DNS resolution working"
-    docker rmi hello-world > /dev/null 2>&1
 else
     echo "DNS still broken - may need Docker Desktop restart"
 fi
