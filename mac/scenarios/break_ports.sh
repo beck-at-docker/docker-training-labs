@@ -35,9 +35,9 @@ sleep 1
 
 # Start containers that squat on common ports
 docker run -d --name port-squatter-80 -p 80:80 nginx:alpine
-docker run -d --name port-squatter-443 -p 443:443 nginx:alpine  
-docker run -d --name port-squatter-3306 -p 3306:3306 mysql:8 \
-    -e MYSQL_ROOT_PASSWORD=dummy
+docker run -d --name port-squatter-443 -p 443:443 nginx:alpine
+docker run -d --name port-squatter-3306 -p 3306:3306 \
+    -e MYSQL_ROOT_PASSWORD=dummy mysql:8
 
 # Start a background process on 8080
 nohup python3 -m http.server 8080 </dev/null >/dev/null 2>&1 &
@@ -47,6 +47,25 @@ echo $! > /tmp/port_squatter_8080.pid
 # blends in with real infrastructure and is harder to spot than 'squatter-*'.
 docker run -d --name background-db -p 5432:5432 \
     -e POSTGRES_PASSWORD=dummy postgres:alpine
+
+# Wait for mysql to finish initialising and actually bind port 3306.
+# MySQL can take 10-20 seconds to start; without this wait the port appears
+# free and the test script's readiness check passes spuriously.
+# Poll mysqladmin ping inside the container (max 60s before giving up).
+echo "Waiting for mysql to bind port 3306..."
+MYSQL_READY=0
+for i in $(seq 1 30); do
+    if docker exec port-squatter-3306 mysqladmin ping -u root -pdummy \
+            --silent 2>/dev/null; then
+        MYSQL_READY=1
+        break
+    fi
+    sleep 2
+done
+
+if [ "$MYSQL_READY" -eq 0 ]; then
+    echo "Warning: mysql did not become ready within 60s - port 3306 may not be held"
+fi
 
 echo "Docker Desktop broken ..."
 echo "Symptoms: New containers will fail to bind with 'address already in use'"
