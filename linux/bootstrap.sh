@@ -85,10 +85,11 @@ echo ""
 echo "Running installer (sudo required for system directories)..."
 echo ""
 
+# install.sh lives under linux/ in the monorepo, not at the repo root.
 if [ "$EUID" -eq 0 ]; then
-    bash install.sh
+    bash linux/install.sh
 else
-    sudo bash install.sh
+    sudo bash linux/install.sh
 fi
 
 # ------------------------------------------------------------------

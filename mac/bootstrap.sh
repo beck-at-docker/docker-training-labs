@@ -50,7 +50,8 @@ echo ""
 # Capture absolute path before handing off to sudo, which may reset CWD.
 # Using 'sudo bash <path>' matches the Linux bootstrap pattern and avoids
 # the 'command not found' error caused by sudo resolving relative paths.
-INSTALL_SCRIPT="$(pwd)/install.sh"
+# install.sh lives under mac/ in the monorepo, not at the repo root.
+INSTALL_SCRIPT="$(pwd)/mac/install.sh"
 
 # Run installer
 echo "Installing (requires sudo)..."
