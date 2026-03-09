@@ -1,0 +1,20 @@
+- scenarios/break_ports.sh: explain the intentional mix of container types
+  and host process, and the .hidden-postgres naming trick
+- scenarios/break_bridge.sh: explain two-pronged approach (subnet conflict
+  + iptables DROP) and why broken-web/broken-app are started
+- scenarios/break_proxy.sh: explain why both daemon.json and shell RC are
+  targeted, and the sentinel comment pattern for clean removal
+- install.sh: explain SU[200~cd /Users/beck/labs-dd/mac
+git add troubleshootmaclab \
+        lib/colors.sh \
+        lib/grading.sh \
+        lib/state.sh \
+        scenarios/break_ports.sh \
+        scenarios/break_bridge.sh \
+        scenarios/break_proxy.sh \
+        tests/test_framework.sh \
+                                                                                co                                                                   f                                                             e                                                                       y,                                 b (temp file flow, return-vs-exit design), and main (dual-state
+  menu, why get_current_scenario is called per-loop-iteration)
+- lib/state.sh: document sed pipeline in _read_coDO_USER and the eval echo ~ trick"
+git push[201~
+
