@@ -52,8 +52,9 @@ test_fixed_state() {
     run_test "Multiple image pulls work" \
         "docker pull hello-world > /dev/null 2>&1 && docker pull busybox > /dev/null 2>&1"
     
+    # printf interprets \n correctly; single-quoted echo does not
     run_test "Build works (implies registry access)" \
-        "echo 'FROM alpine:latest\nRUN echo test' | docker build -t test-proxy-fix - > /dev/null 2>&1"
+        "printf 'FROM alpine:latest\nRUN echo test\n' | docker build -t test-proxy-fix - > /dev/null 2>&1"
     
     # Cleanup
     docker rmi test-proxy-fix hello-world busybox 2>/dev/null || true
