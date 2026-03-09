@@ -12,22 +12,19 @@ echo ""
 echo "Breaking Docker Desktop..."
 echo ""
 
-# Run all break scripts
-#  echo "1/4 Breaking DNS..."
+# Run all break scripts in dependency order: DNS, then ports, then bridge, then proxy.
+# Progress output is intentionally cryptic to avoid hinting at the break mechanisms.
 bash "$SCRIPT_DIR/break_dns.sh"
-echo "working ... "
+echo "working..."
 
-#echo "2/4 Breaking ports..."
 bash "$SCRIPT_DIR/break_ports.sh"
-echo ". working .."
+echo "working..."
 
-#echo "3/4 Breaking bridge network..."
 bash "$SCRIPT_DIR/break_bridge.sh"
-echo ".. working ."
+echo "working..."
 
-#echo "4/4 Breaking proxy configuration..."
 bash "$SCRIPT_DIR/break_proxy.sh"
-echo "... working"
+echo "working..."
 
 echo "=========================================="
 echo " DOCKER IS VERY BROKEN"
