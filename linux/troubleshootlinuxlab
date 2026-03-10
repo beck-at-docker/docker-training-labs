@@ -117,7 +117,9 @@ show_main_menu() {
         echo ""
         echo "1. Container Connections"
         echo ""
-        echo "2. View my report card"
+        echo "2. Pull Problems"
+        echo ""
+        echo "3. View my report card"
         echo "0. Exit"
     fi
 
@@ -132,6 +134,35 @@ show_lab_instructions() {
     local lab=$1
 
     case $lab in
+        PROXY)
+            cat << 'EOF'
+Problem: Docker cannot reach external registries
+
+Your Docker Desktop cannot pull images or access external
+resources. This is likely due to proxy misconfiguration.
+
+Symptoms you should observe:
+  - docker pull fails with a proxy connection error
+  - Containers can't reach the internet
+  - Host machine internet access works fine
+
+On Linux, proxy config lives in two places:
+  - ~/.docker/daemon.json  (daemon-level, requires Docker restart)
+  - Shell RC file (~/.bashrc or ~/.bash_profile)
+
+Diagnostic Commands to Try:
+  docker pull hello-world
+  docker info | grep -i proxy
+  cat ~/.docker/daemon.json
+  env | grep -i proxy
+
+Look for:
+  - Invalid proxy hostnames or unroutable addresses in daemon.json
+  - HTTP_PROXY / HTTPS_PROXY set in your shell environment
+
+Fix both layers to fully resolve the issue!
+EOF
+            ;;
         DNS)
             cat << 'EOF'
 Problem: docker pull fails with a DNS write error
@@ -181,8 +212,12 @@ start_lab() {
 
     case $lab_number in
         1)
-            lab_name="DNS"
+            lab_name="DNS"    # -> scenarios/break_dns.sh, tests/test_dns.sh
             break_script="$INSTALL_DIR/scenarios/break_dns.sh"
+            ;;
+        2)
+            lab_name="PROXY"  # -> scenarios/break_proxy.sh, tests/test_proxy.sh
+            break_script="$INSTALL_DIR/scenarios/break_proxy.sh"
             ;;
         *)
             echo -e "${RED}Invalid lab selection${NC}"
@@ -465,6 +500,7 @@ show_report_card() {
     local total_score=0
     local lab_count=0
     local dns_score=""
+    local proxy_score=""
 
     # Each scenario variable is overwritten on every matching row, so if a
     # trainee attempted the same lab multiple times only the last score is
@@ -476,7 +512,8 @@ show_report_card() {
         fi
 
         case "$scenario" in
-            DNS) dns_score="${score}%" ;;
+            DNS)   dns_score="${score}%" ;;
+            PROXY) proxy_score="${score}%" ;;
         esac
 
         total_score=$((total_score + score))
@@ -485,6 +522,7 @@ show_report_card() {
 
     echo "Lab Scores:"
     echo "  DNS Resolution:  ${dns_score:-Not attempted}"
+    echo "  Pull Problems:   ${proxy_score:-Not attempted}"
     echo ""
 
     if [ "$lab_count" -gt 0 ]; then
@@ -648,11 +686,11 @@ main() {
         else
             # No active lab menu
             case $choice in
-                1)
-                    start_lab 1
+                [1-2])
+                    start_lab $choice
                     exit 0
                     ;;
-                2)
+                3)
                     show_report_card
                     read -p "Press enter to continue..."
                     ;;
