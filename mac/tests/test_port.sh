@@ -18,8 +18,11 @@ test_fixed_state() {
     run_test "Docker daemon running after fix" \
         "docker info > /dev/null"
     
-    # Verify ports are available again (test each port individually)
+    # Verify ports are available again (test each port individually).
+    # Pre-clean any test containers left over from an interrupted previous run
+    # to avoid false failures caused by name conflicts rather than port conflicts.
     for port in "${COMMON_PORTS[@]}"; do
+        docker rm -f "test-port-$port" > /dev/null 2>&1 || true
         run_test "Port $port is available" \
             "docker run -d --name test-port-$port -p $port:80 nginx:alpine > /dev/null 2>&1 && docker rm -f test-port-$port > /dev/null"
     done
@@ -50,7 +53,9 @@ test_fixed_state() {
         log_fail "PID file still exists at /tmp/port_squatter_8080.pid"
     fi
     
-    # Test rapid port allocation/deallocation
+    # Stability: confirm ports can be allocated and freed repeatedly.
+    # Pre-clean in case containers from a previous interrupted run remain.
+    docker rm -f test-1 test-2 test-3 > /dev/null 2>&1 || true
     run_test "Can rapidly allocate and free ports" \
         "for i in 1 2 3; do docker run -d --name test-\$i -p 8080:80 nginx:alpine && docker rm -f test-\$i; done > /dev/null 2>&1"
 }
