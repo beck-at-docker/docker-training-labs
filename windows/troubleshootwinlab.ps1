@@ -81,7 +81,9 @@ function Show-MainMenu {
         Write-Host ""
         Write-Host "1. Container Connections"
         Write-Host ""
-        Write-Host "2. View my report card"
+        Write-Host "2. Pull Problems"
+        Write-Host ""
+        Write-Host "3. View my report card"
         Write-Host "0. Exit"
     }
 
@@ -93,6 +95,35 @@ function Show-MainMenu {
 function Show-LabInstructions {
     param([string]$Lab)
     switch ($Lab) {
+        "PROXY" {
+            Write-Host @"
+Problem: Docker cannot reach external registries
+
+Your Docker Desktop cannot pull images or access external
+resources. This is likely due to proxy misconfiguration.
+
+Symptoms you should observe:
+  - docker pull fails with a proxy connection error
+  - Containers can't reach the internet
+  - Host machine internet access works fine
+
+On Windows, proxy config lives in two places:
+  - Docker Desktop settings store (Settings > Resources > Proxies)
+  - User-scope environment variables (HTTP_PROXY, HTTPS_PROXY)
+
+Diagnostic Commands to Try:
+  docker pull hello-world
+  docker info | Select-String proxy
+  cat `$env:APPDATA\Docker\settings-store.json
+  [System.Environment]::GetEnvironmentVariable('HTTP_PROXY', 'User')
+
+Look for:
+  - ProxyHTTPMode set to "manual" with an unroutable proxy address
+  - HTTP_PROXY / HTTPS_PROXY set in User-scope environment
+
+Fix both layers to fully resolve the issue!
+"@
+        }
         "DNS" {
             Write-Host @"
 Problem: docker pull fails with a DNS write error
@@ -141,8 +172,12 @@ function Start-Lab {
 
     switch ($LabNumber) {
         1 {
-            $labName    = "DNS"
+            $labName     = "DNS"    # -> scenarios\break_dns.ps1, tests\test_dns.ps1
             $breakScript = "$INSTALL_DIR\scenarios\break_dns.ps1"
+        }
+        2 {
+            $labName     = "PROXY"  # -> scenarios\break_proxy.ps1, tests\test_proxy.ps1
+            $breakScript = "$INSTALL_DIR\scenarios\break_proxy.ps1"
         }
         default {
             Write-Red "Invalid lab selection"
@@ -352,20 +387,23 @@ function Show-ReportCard {
     $totalScore = 0
     $labCount   = 0
     $dnsScore   = $null
+    $proxyScore = $null
 
     # Each scenario variable is overwritten on every matching row, so if a
     # trainee attempted the same lab multiple times only the last score is
     # shown. All attempts count toward the overall average.
     Import-Csv $GRADES_FILE | Where-Object { $_.trainee_id -eq $env:USERNAME } | ForEach-Object {
         switch ($_.scenario) {
-            "DNS" { $dnsScore = "$($_.score)%" }
+            "DNS"   { $dnsScore   = "$($_.score)%" }
+            "PROXY" { $proxyScore = "$($_.score)%" }
         }
         $totalScore += [int]$_.score
         $labCount++
     }
 
     Write-Host "Lab Scores:"
-    Write-Host "  DNS Resolution:  $(if ($dnsScore) { $dnsScore } else { 'Not attempted' })"
+    Write-Host "  DNS Resolution:  $(if ($dnsScore)   { $dnsScore }   else { 'Not attempted' })"
+    Write-Host "  Pull Problems:   $(if ($proxyScore) { $proxyScore } else { 'Not attempted' })"
     Write-Host ""
 
     if ($labCount -gt 0) {
@@ -472,7 +510,8 @@ function Main {
         } else {
             switch ($choice) {
                 "1" { Start-Lab 1; exit 0 }
-                "2" { Show-ReportCard; Read-Host "Press enter to continue" }
+                "2" { Start-Lab 2; exit 0 }
+                "3" { Show-ReportCard; Read-Host "Press enter to continue" }
                 "0" { Write-Host "Goodbye!"; exit 0 }
                 default { Write-Host "Invalid option"; Start-Sleep 1 }
             }
