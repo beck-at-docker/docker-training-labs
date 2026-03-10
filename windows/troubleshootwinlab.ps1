@@ -81,9 +81,11 @@ function Show-MainMenu {
         Write-Host ""
         Write-Host "1. Container Connections"
         Write-Host ""
-        Write-Host "2. Pull Problems"
+        Write-Host "2. Port Problems"
         Write-Host ""
-        Write-Host "3. View my report card"
+        Write-Host "3. Pull Problems"
+        Write-Host ""
+        Write-Host "4. View my report card"
         Write-Host "0. Exit"
     }
 
@@ -95,6 +97,30 @@ function Show-MainMenu {
 function Show-LabInstructions {
     param([string]$Lab)
     switch ($Lab) {
+        "PORT" {
+            Write-Host @"
+Problem: Containers fail to bind to common ports
+
+When you try to start containers that need standard ports
+(80, 443, 3306, 5432, 8080), you get "address already in use"
+errors.
+
+Symptoms you should observe:
+  - docker run -p 80:80 nginx:alpine fails with port allocation error
+  - Multiple ports are mysteriously occupied
+  - Some blocking containers may be hard to find
+
+Diagnostic Commands to Try:
+  docker ps -a
+  netstat -ano | findstr LISTENING
+  docker ps -a --filter "name=."
+
+Note: not all port conflicts come from Docker containers.
+Some may be Windows host processes - check netstat output carefully.
+
+Fix it by identifying and removing port conflicts!
+"@
+        }
         "PROXY" {
             Write-Host @"
 Problem: Docker cannot reach external registries
@@ -176,6 +202,10 @@ function Start-Lab {
             $breakScript = "$INSTALL_DIR\scenarios\break_dns.ps1"
         }
         2 {
+            $labName     = "PORT"   # -> scenarios\break_ports.ps1, tests\test_port.ps1
+            $breakScript = "$INSTALL_DIR\scenarios\break_ports.ps1"
+        }
+        3 {
             $labName     = "PROXY"  # -> scenarios\break_proxy.ps1, tests\test_proxy.ps1
             $breakScript = "$INSTALL_DIR\scenarios\break_proxy.ps1"
         }
@@ -387,6 +417,7 @@ function Show-ReportCard {
     $totalScore = 0
     $labCount   = 0
     $dnsScore   = $null
+    $portScore  = $null
     $proxyScore = $null
 
     # Each scenario variable is overwritten on every matching row, so if a
@@ -395,6 +426,7 @@ function Show-ReportCard {
     Import-Csv $GRADES_FILE | Where-Object { $_.trainee_id -eq $env:USERNAME } | ForEach-Object {
         switch ($_.scenario) {
             "DNS"   { $dnsScore   = "$($_.score)%" }
+            "PORT"  { $portScore  = "$($_.score)%" }
             "PROXY" { $proxyScore = "$($_.score)%" }
         }
         $totalScore += [int]$_.score
@@ -403,6 +435,7 @@ function Show-ReportCard {
 
     Write-Host "Lab Scores:"
     Write-Host "  DNS Resolution:  $(if ($dnsScore)   { $dnsScore }   else { 'Not attempted' })"
+    Write-Host "  Port Problems:   $(if ($portScore)  { $portScore }  else { 'Not attempted' })"
     Write-Host "  Pull Problems:   $(if ($proxyScore) { $proxyScore } else { 'Not attempted' })"
     Write-Host ""
 
@@ -511,7 +544,8 @@ function Main {
             switch ($choice) {
                 "1" { Start-Lab 1; exit 0 }
                 "2" { Start-Lab 2; exit 0 }
-                "3" { Show-ReportCard; Read-Host "Press enter to continue" }
+                "3" { Start-Lab 3; exit 0 }
+                "4" { Show-ReportCard; Read-Host "Press enter to continue" }
                 "0" { Write-Host "Goodbye!"; exit 0 }
                 default { Write-Host "Invalid option"; Start-Sleep 1 }
             }
