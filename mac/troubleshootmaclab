@@ -300,26 +300,32 @@ EOF
 Problem: Docker cannot reach external registries
 
 Your Docker Desktop cannot pull images or access external
-resources. This is likely due to proxy misconfiguration.
+resources. This is due to proxy misconfiguration.
 
 Symptoms you should observe:
-- docker pull commands fail with proxy errors
+- docker pull fails with a proxy connection error
 - Containers can't reach the internet
-- Error messages mention proxy or connection refused
 - Host machine internet access works fine
 
+On Mac, Docker Desktop manages proxy settings independently of
+~/.docker/daemon.json. The canonical location to check is:
+
+  ~/Library/Group Containers/group.com.docker/settings-store.json
+
+There is also a shell layer: environment variables in your RC
+file can conflict with or reinforce the daemon-level setting.
+
 Diagnostic Commands to Try:
-- cat ~/.docker/daemon.json
-- env | grep -i proxy
-- docker info | grep -i proxy
 - docker pull hello-world
+- docker info | grep -i proxy
+- cat ~/Library/Group\ Containers/group.com.docker/settings-store.json
+- env | grep -i proxy
 
-Check for:
-- Invalid proxy hostnames
-- Wrong proxy ports
-- Conflicting environment variables
+Look for:
+- ProxyHTTPMode set to "manual" with an unroutable proxy address
+- HTTP_PROXY / HTTPS_PROXY set in your shell environment
 
-Fix it by correcting proxy configuration!
+Fix both layers to fully resolve the issue!
 EOF
             ;;
         CHAOS)

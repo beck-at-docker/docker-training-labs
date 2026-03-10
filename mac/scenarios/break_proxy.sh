@@ -1,72 +1,105 @@
 #!/bin/bash
-# break_proxy.sh - Corrupts proxy settings
+# break_proxy.sh - Corrupts proxy settings on Mac Docker Desktop
 #
-# Sets invalid proxy configuration in two separate places to simulate the
-# kind of layered misconfiguration that happens in corporate environments:
+# On Mac, Docker Desktop ignores daemon.json proxy settings entirely. Proxy
+# config is owned by Docker Desktop and lives in settings-store.json under
+# ~/Library/Group Containers/group.com.docker/. This script targets that
+# file directly, which is the only reliable way to break proxy config from
+# a script on Mac.
 #
-#   1. ~/.docker/daemon.json: the Docker daemon reads this on startup.
-#      Setting an invalid proxy here means image pulls fail even after a
-#      terminal restart because the daemon is the one making the requests.
-#      Requires a Docker Desktop restart to take effect.
+# Two separate mechanisms are used to simulate layered misconfiguration:
+#
+#   1. settings-store.json: switches proxy mode from "system" to "manual"
+#      and sets a non-routable address (192.0.2.1, RFC 5737 TEST-NET) as
+#      both the HTTP and HTTPS proxy. Docker Desktop must be restarted to
+#      read the change, which this script handles automatically.
 #
 #   2. Shell RC file (~/.zshrc or ~/.bash_profile): sets HTTP_PROXY and
-#      HTTPS_PROXY environment variables that will conflict with any valid
-#      proxy config once the terminal is reloaded. The variables are wrapped
-#      in sentinel comments (BEGIN/END markers) for clean programmatic removal.
+#      HTTPS_PROXY environment variables that conflict with any valid proxy
+#      config once the terminal is reloaded. Wrapped in sentinel markers
+#      for clean programmatic removal.
 #
-# A timestamp-based backup is created for both files so nothing is permanently
-# lost and trainees can restore from backup as one valid fix path.
+# Both files are backed up with a timestamp before modification so nothing
+# is permanently lost.
 
 set -e
 
-echo "Breaking Docker Desktop..."
-
-# Generate timestamp once for consistent backup naming
+SETTINGS_STORE="$HOME/Library/Group Containers/group.com.docker/settings-store.json"
 BACKUP_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
-# Method 1: Set invalid proxy in Docker daemon config
-DOCKER_CONFIG="$HOME/.docker/daemon.json"
-mkdir -p "$HOME/.docker"
+echo "Breaking Docker Desktop..."
 
-# Backup existing config with timestamp (consistent with shell RC backup)
-if [ -f "$DOCKER_CONFIG" ]; then
-    cp "$DOCKER_CONFIG" "${DOCKER_CONFIG}.backup-${BACKUP_TIMESTAMP}"
-    DAEMON_BACKUP_CREATED=1
+# Verify Docker Desktop is running before we touch anything
+if ! docker info &>/dev/null; then
+    echo "Error: Docker Desktop is not running"
+    exit 1
 fi
 
-# Write broken proxy config
-cat > "$DOCKER_CONFIG" << 'EOF'
-{
-  "proxies": {
-    "http-proxy": "http://invalid-proxy.local:3128",
-    "https-proxy": "http://invalid-proxy.local:3128"
-  }
-}
+# Verify the settings store exists - if it doesn't, Docker Desktop hasn't
+# been fully initialised and we can't proceed safely
+if [ ! -f "$SETTINGS_STORE" ]; then
+    echo "Error: Docker Desktop settings store not found at:"
+    echo "  $SETTINGS_STORE"
+    exit 1
+fi
+
+# ------------------------------------------------------------------
+# Method 1: Corrupt the Docker Desktop settings store
+#
+# Python3 is used to merge the proxy keys into the existing JSON rather
+# than replacing the whole file. Replacing the whole file risks wiping
+# out settings (snapshotter choice, feature flags, etc.) that affect
+# whether Docker Desktop starts cleanly.
+#
+# Keys written:
+#   ProxyHTTPMode / ContainersProxyHTTPMode - switch from "system" to "manual"
+#   ProxyHTTP / ProxyHTTPS                  - daemon-level bogus proxy
+#   ContainersProxyHTTP / ContainersProxyHTTPS - container-level bogus proxy
+#   ProxyExclude / ContainersProxyExclude   - empty, so nothing bypasses it
+# ------------------------------------------------------------------
+cp "$SETTINGS_STORE" "${SETTINGS_STORE}.backup-${BACKUP_TIMESTAMP}"
+
+python3 - "$SETTINGS_STORE" << 'EOF'
+import json, sys
+
+path = sys.argv[1]
+with open(path, 'r') as f:
+    data = json.load(f)
+
+bogus_proxy = "http://192.0.2.1:8080"
+
+data['ProxyHTTPMode']            = 'manual'
+data['ProxyHTTP']                = bogus_proxy
+data['ProxyHTTPS']               = bogus_proxy
+data['ProxyExclude']             = ''
+data['ContainersProxyHTTPMode']  = 'manual'
+data['ContainersProxyHTTP']      = bogus_proxy
+data['ContainersProxyHTTPS']     = bogus_proxy
+data['ContainersProxyExclude']   = ''
+
+with open(path, 'w') as f:
+    json.dump(data, f, indent=2)
 EOF
 
-# Method 2: Set conflicting environment variables in shell RC files
-# Detect which shell RC file to modify.
-# Note: this script is always invoked via 'bash break_proxy.sh', so
-# $ZSH_VERSION is always unset regardless of the user's default shell.
-# The file-existence checks do the real detection work.
-if [ -n "$ZSH_VERSION" ] || [ -f "$HOME/.zshrc" ]; then
+echo "  Settings store updated"
+
+# ------------------------------------------------------------------
+# Method 2: Corrupt shell RC file with bogus proxy env vars
+# ------------------------------------------------------------------
+if [ -f "$HOME/.zshrc" ]; then
     SHELL_RC="$HOME/.zshrc"
-elif [ -n "$BASH_VERSION" ] || [ -f "$HOME/.bash_profile" ]; then
+elif [ -f "$HOME/.bash_profile" ]; then
     SHELL_RC="$HOME/.bash_profile"
 elif [ -f "$HOME/.bashrc" ]; then
     SHELL_RC="$HOME/.bashrc"
 else
-    # Default to .zshrc on macOS
     SHELL_RC="$HOME/.zshrc"
 fi
 
-# Backup the RC file
 if [ -f "$SHELL_RC" ]; then
     cp "$SHELL_RC" "${SHELL_RC}.backup-${BACKUP_TIMESTAMP}"
-    SHELL_BACKUP_CREATED=1
 fi
 
-# Add broken proxy settings (with marker for easy removal)
 cat >> "$SHELL_RC" << 'EOF'
 
 # BEGIN DOCKER TRAINING LAB PROXY BREAK - DO NOT EDIT
@@ -77,26 +110,50 @@ export NO_PROXY=
 # END DOCKER TRAINING LAB PROXY BREAK
 EOF
 
-echo ""
-echo "IMPORTANT: You must restart Docker Desktop for changes to take effect!"
-echo "You must also restart your terminal or run: source $SHELL_RC"
-echo ""
-echo "To restart Docker Desktop:"
-echo "  1. Click the Docker whale icon in your menu bar"
-echo "  2. Select 'Restart'"
-echo "  3. Wait for Docker Desktop to fully restart"
-echo ""
-echo "Proxy configuration broken in:"
-echo "   - $DOCKER_CONFIG (requires Docker restart)"
-echo "   - $SHELL_RC (requires terminal restart)"
-echo ""
+echo "  Shell RC updated: $SHELL_RC"
 
-if [ -n "$DAEMON_BACKUP_CREATED" ] || [ -n "$SHELL_BACKUP_CREATED" ]; then
-    echo "Backups saved:"
-    [ -n "$DAEMON_BACKUP_CREATED" ] && echo "   - ${DOCKER_CONFIG}.backup-${BACKUP_TIMESTAMP}"
-    [ -n "$SHELL_BACKUP_CREATED" ] && echo "   - ${SHELL_RC}.backup-${BACKUP_TIMESTAMP}"
-    echo ""
+# ------------------------------------------------------------------
+# Restart Docker Desktop so it reads the new settings-store.json.
+# We quit cleanly via osascript, wait for the process to exit, then
+# relaunch and poll docker info until the daemon is accepting connections
+# (or we time out after 60 seconds).
+# ------------------------------------------------------------------
+echo ""
+echo "Restarting Docker Desktop to apply proxy settings..."
+
+osascript -e 'quit app "Docker Desktop"' 2>/dev/null || true
+
+# Wait for the Docker Desktop process to exit
+for i in $(seq 1 15); do
+    if ! pgrep -x "Docker Desktop" > /dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
+
+# Relaunch Docker Desktop
+open /Applications/Docker.app
+
+# Poll until the daemon is back up (max 60 seconds)
+echo "  Waiting for Docker Desktop to restart..."
+DOCKER_READY=0
+for i in $(seq 1 30); do
+    if docker info &>/dev/null 2>&1; then
+        DOCKER_READY=1
+        break
+    fi
+    sleep 2
+done
+
+if [ "$DOCKER_READY" -eq 0 ]; then
+    echo "  Warning: Docker Desktop did not come back within 60s"
+    echo "  You may need to wait a moment before the break is fully active"
 fi
 
-echo "Docker Desktop broken..."
+echo ""
+echo "Docker Desktop broken"
+echo "Backups saved:"
+echo "  ${SETTINGS_STORE}.backup-${BACKUP_TIMESTAMP}"
+echo "  ${SHELL_RC}.backup-${BACKUP_TIMESTAMP}"
+echo ""
 echo "Symptoms: Image pulls fail, container internet access fails"
