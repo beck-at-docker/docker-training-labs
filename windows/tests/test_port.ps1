@@ -29,13 +29,31 @@ function Test-FixedState {
     # Verify each port is free by binding a temporary container to it.
     # All five are tested individually so trainees can see exactly which
     # ports are still occupied if the fix was incomplete.
+    #
+    # Variable capture: PowerShell scriptblocks do not automatically capture
+    # foreach-scope variables. We use .GetNewClosure() to snapshot $capturedPort
+    # at each iteration so the block sees the right value when Run-Test calls it.
+    # Without this, $port would be $null inside every block.
+    #
+    # 'throw' is used instead of 'exit' to signal failure. 'exit' inside a
+    # scriptblock called with & terminates the entire PowerShell session.
+    # Run-Test's try/catch converts a thrown exception into a test failure.
+    #
+    # Pre-clean any test containers left over from an interrupted previous run
+    # to avoid false failures caused by name conflicts rather than port conflicts.
     $ports = @(80, 443, 3306, 5432, 8080)
     foreach ($port in $ports) {
-        Run-Test "Port $port is available" {
-            docker run -d --name "test-port-$port" -p "${port}:80" nginx:alpine 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) { exit 1 }
-            docker rm -f "test-port-$port" 2>&1 | Out-Null
-        }
+        docker rm -f "test-port-$port" 2>&1 | Out-Null
+
+        $capturedPort = $port
+        $testBlock = {
+            docker run -d --name "test-port-$capturedPort" -p "${capturedPort}:80" nginx:alpine 2>&1 | Out-Null
+            $runExitCode = $LASTEXITCODE
+            docker rm -f "test-port-$capturedPort" 2>&1 | Out-Null
+            if ($runExitCode -ne 0) { throw "Port $capturedPort is still occupied" }
+        }.GetNewClosure()
+
+        Run-Test "Port $port is available" $testBlock
     }
 
     # Verify all squatter containers have been removed
@@ -48,11 +66,12 @@ function Test-FixedState {
     }
 
     # Verify the background TcpListener job is no longer running.
-    # Check both the saved job ID (if the file exists) and whether anything
-    # is still listening on 8080 at the process level.
+    # Check both the saved job ID file and whether anything is still
+    # listening on 8080 at the process level.
     Log-Test "Background TCP listener on port 8080 stopped"
     $listenerRunning = $false
 
+    Log-Test "Job ID file cleaned up"
     if (Test-Path $jobIdFile) {
         $jobId = Get-Content $jobIdFile -ErrorAction SilentlyContinue
         if ($jobId) {
@@ -61,15 +80,11 @@ function Test-FixedState {
                 $listenerRunning = $true
             }
         }
-        # Job ID file still present counts as incomplete cleanup
-        Log-Test "Job ID file cleaned up"
         Log-Fail "Job ID file still exists at $jobIdFile"
     } else {
-        Log-Test "Job ID file cleaned up"
         Log-Pass "Job ID file cleaned up"
     }
 
-    # Also check via netstat whether anything is listening on 8080
     $netstatResult = netstat -ano 2>&1 | Select-String ":8080.*LISTENING"
     if ($netstatResult -or $listenerRunning) {
         Log-Fail "Something is still listening on port 8080"
@@ -77,12 +92,15 @@ function Test-FixedState {
         Log-Pass "Background TCP listener on port 8080 stopped"
     }
 
-    # Stability: confirm ports can be allocated and freed repeatedly
+    # Stability: confirm ports can be allocated and freed repeatedly.
+    # Pre-clean in case containers from a previous interrupted run remain.
+    docker rm -f rapid-test-1 rapid-test-2 rapid-test-3 2>&1 | Out-Null
     Run-Test "Can rapidly allocate and free ports" {
         for ($i = 1; $i -le 3; $i++) {
             docker run -d --name "rapid-test-$i" -p "8080:80" nginx:alpine 2>&1 | Out-Null
-            if ($LASTEXITCODE -ne 0) { exit 1 }
+            $runCode = $LASTEXITCODE
             docker rm -f "rapid-test-$i" 2>&1 | Out-Null
+            if ($runCode -ne 0) { throw "Failed to allocate port 8080 on iteration $i" }
         }
     }
 }
