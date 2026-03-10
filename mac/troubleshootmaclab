@@ -255,7 +255,7 @@ When you try to start containers that need standard ports
 errors.
 
 Symptoms you should observe:
-- docker run -p 80:80 fails with port allocation error
+- docker run -p 80:80 nginx:alpine fails with port allocation error
 - Multiple ports are mysteriously occupied
 - Some blocking containers may be hard to find
 
