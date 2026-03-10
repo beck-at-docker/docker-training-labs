@@ -60,6 +60,7 @@ echo ""
 echo "Verifying DNS resolution..."
 if docker pull hello-world > /dev/null 2>&1; then
     echo "DNS resolution working"
+    docker rmi hello-world > /dev/null 2>&1 || true
 else
     echo "DNS still broken - may need Docker Desktop restart"
 fi

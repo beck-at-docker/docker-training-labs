@@ -59,6 +59,7 @@ Write-Host "Verifying DNS resolution..."
 docker pull hello-world 2>&1 | Out-Null
 if ($LASTEXITCODE -eq 0) {
     Write-Host "DNS resolution working"
+    docker rmi hello-world 2>&1 | Out-Null
 } else {
     Write-Host "DNS still broken - may need Docker Desktop restart"
 }
