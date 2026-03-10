@@ -46,11 +46,14 @@ if (Test-Path $jobIdFile) {
     Remove-Item $jobIdFile -ErrorAction SilentlyContinue
     Write-Host "  Removed job ID file"
 } else {
-    Write-Host "  No job ID file found - checking for orphaned jobs..."
-    # Best-effort: stop any PowerShell jobs that might be holding ports
-    Get-Job | Where-Object { $_.State -eq "Running" } | ForEach-Object {
+    Write-Host "  No job ID file found - checking for orphaned TcpListener jobs..."
+    # Narrow scope: only stop jobs whose command block contains TcpListener,
+    # which is the signature of the port squatter job. Killing all running
+    # jobs would affect any other background work the instructor has running.
+    Get-Job | Where-Object { $_.State -eq "Running" -and $_.Command -like "*TcpListener*" } | ForEach-Object {
         Stop-Job  -Id $_.Id -ErrorAction SilentlyContinue
         Remove-Job -Id $_.Id -Force -ErrorAction SilentlyContinue
+        Write-Host "  Stopped orphaned TcpListener job $($_.Id)"
     }
 }
 
