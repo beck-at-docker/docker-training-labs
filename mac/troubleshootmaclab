@@ -105,9 +105,9 @@ show_main_menu() {
         echo ""
         echo "2. Port Problems"
         echo ""
-        echo "3. Broken Networking"
+        echo "3. Pull Problems"
         echo ""
-        echo "4. Pull Problems"
+        echo "4. Broken Networking"
         echo ""
         echo "5. CHAOS MODE - All labs at once!"
         echo ""
@@ -140,12 +140,12 @@ start_lab() {
             break_script="$INSTALL_DIR/scenarios/break_ports.sh"
             ;;
         3)
-            lab_name="BRIDGE"     # -> scenarios/break_bridge.sh, tests/test_bridge.sh
-            break_script="$INSTALL_DIR/scenarios/break_bridge.sh"
-            ;;
-        4)
             lab_name="PROXY"      # -> scenarios/break_proxy.sh, tests/test_proxy.sh
             break_script="$INSTALL_DIR/scenarios/break_proxy.sh"
+            ;;
+        4)
+            lab_name="BRIDGE"     # -> scenarios/break_bridge.sh, tests/test_bridge.sh
+            break_script="$INSTALL_DIR/scenarios/break_bridge.sh"
             ;;
         5)
             lab_name="CHAOS"      # -> scenarios/break_all.sh, tests/test_chaos.sh
