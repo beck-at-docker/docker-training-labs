@@ -85,7 +85,9 @@ function Show-MainMenu {
         Write-Host ""
         Write-Host "3. Pull Problems"
         Write-Host ""
-        Write-Host "4. View my report card"
+        Write-Host "4. Login Problems"
+        Write-Host ""
+        Write-Host "5. View my report card"
         Write-Host "0. Exit"
     }
 
@@ -119,6 +121,40 @@ Note: not all port conflicts come from Docker containers.
 Some may be Windows host processes - check netstat output carefully.
 
 Fix it by identifying and removing port conflicts!
+"@
+        }
+        "SSO" {
+            Write-Host @"
+Problem: Docker Desktop keeps signing you out
+
+After starting Docker Desktop, you find yourself signed out.
+When you try to sign back in using SSO, the browser opens and
+you authenticate successfully - but Docker Desktop immediately
+signs you out again.
+
+Symptoms you should observe:
+  - Docker Desktop shows you as signed out
+  - docker info shows no Username field
+  - Surprisingly, docker pull still works for public images
+  - SSO loop: browser auth succeeds but Desktop signs out
+
+The fact that pulls work but login doesn't is the key clue.
+Something is selectively blocking certain network destinations
+while leaving others reachable.
+
+Diagnostic Commands to Try:
+  docker info | Select-String username
+  docker pull alpine:latest
+  cat `$env:APPDATA\Docker\settings-store.json
+  [System.Environment]::GetEnvironmentVariable('HTTP_PROXY', 'User')
+
+Look for:
+  - ProxyHTTPMode set to "manual" with an unroutable proxy address
+  - A ProxyExclude list covering registries but NOT login endpoints
+  - The asymmetry: what works (pulls) vs. what doesn't (auth)
+
+Fix the proxy config so auth endpoints are reachable, then sign
+back in and run troubleshootwinlab --check.
 "@
         }
         "PROXY" {
@@ -208,6 +244,10 @@ function Start-Lab {
         3 {
             $labName     = "PROXY"  # -> scenarios\break_proxy.ps1, tests\test_proxy.ps1
             $breakScript = "$INSTALL_DIR\scenarios\break_proxy.ps1"
+        }
+        4 {
+            $labName     = "SSO"    # -> scenarios\break_sso.ps1, tests\test_sso.ps1
+            $breakScript = "$INSTALL_DIR\scenarios\break_sso.ps1"
         }
         default {
             Write-Red "Invalid lab selection"
@@ -419,6 +459,7 @@ function Show-ReportCard {
     $dnsScore   = $null
     $portScore  = $null
     $proxyScore = $null
+    $ssoScore   = $null
 
     # Each scenario variable is overwritten on every matching row, so if a
     # trainee attempted the same lab multiple times only the last score is
@@ -428,6 +469,7 @@ function Show-ReportCard {
             "DNS"   { $dnsScore   = "$($_.score)%" }
             "PORT"  { $portScore  = "$($_.score)%" }
             "PROXY" { $proxyScore = "$($_.score)%" }
+            "SSO"   { $ssoScore   = "$($_.score)%" }
         }
         $totalScore += [int]$_.score
         $labCount++
@@ -437,6 +479,7 @@ function Show-ReportCard {
     Write-Host "  DNS Resolution:  $(if ($dnsScore)   { $dnsScore }   else { 'Not attempted' })"
     Write-Host "  Port Problems:   $(if ($portScore)  { $portScore }  else { 'Not attempted' })"
     Write-Host "  Pull Problems:   $(if ($proxyScore) { $proxyScore } else { 'Not attempted' })"
+    Write-Host "  Login Problems:  $(if ($ssoScore)   { $ssoScore }   else { 'Not attempted' })"
     Write-Host ""
 
     if ($labCount -gt 0) {
@@ -545,7 +588,8 @@ function Main {
                 "1" { Start-Lab 1; exit 0 }
                 "2" { Start-Lab 2; exit 0 }
                 "3" { Start-Lab 3; exit 0 }
-                "4" { Show-ReportCard; Read-Host "Press enter to continue" }
+                "4" { Start-Lab 4; exit 0 }
+                "5" { Show-ReportCard; Read-Host "Press enter to continue" }
                 "0" { Write-Host "Goodbye!"; exit 0 }
                 default { Write-Host "Invalid option"; Start-Sleep 1 }
             }

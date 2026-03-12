@@ -121,7 +121,9 @@ show_main_menu() {
         echo ""
         echo "3. Pull Problems"
         echo ""
-        echo "4. View my report card"
+        echo "4. Login Problems"
+        echo ""
+        echo "5. View my report card"
         echo "0. Exit"
     fi
 
@@ -190,6 +192,41 @@ Look for:
 Fix both layers to fully resolve the issue!
 EOF
             ;;
+        SSO)
+            cat << 'EOF'
+Problem: Docker Desktop keeps signing you out
+
+After starting Docker Desktop, you find yourself signed out.
+When you try to sign back in using SSO, the browser opens and
+you authenticate successfully - but Docker Desktop immediately
+signs you out again.
+
+Symptoms you should observe:
+  - Docker Desktop shows you as signed out
+  - docker info shows no Username field
+  - Surprisingly, docker pull still works for public images
+  - SSO loop: browser auth succeeds but Desktop signs out
+
+The fact that pulls work but login doesn't is the key clue.
+Something is selectively blocking certain network destinations
+while leaving others reachable.
+
+Diagnostic Commands to Try:
+  docker info | grep -i username
+  docker pull alpine:latest
+  cat ~/.docker/desktop/settings.json
+  cat ~/.docker/daemon.json
+  env | grep -i proxy
+
+Look for:
+  - ProxyHTTPMode set to "manual" with an unroutable proxy address
+  - A ProxyExclude / no-proxy list covering registries but NOT login endpoints
+  - The asymmetry: what works (pulls) vs. what doesn't (auth)
+
+Fix the proxy config so auth endpoints are reachable, then sign
+back in and run troubleshootlinuxlab --check.
+EOF
+            ;;
         DNS)
             cat << 'EOF'
 Problem: docker pull fails with a DNS write error
@@ -249,6 +286,10 @@ start_lab() {
         3)
             lab_name="PROXY"  # -> scenarios/break_proxy.sh, tests/test_proxy.sh
             break_script="$INSTALL_DIR/scenarios/break_proxy.sh"
+            ;;
+        4)
+            lab_name="SSO"    # -> scenarios/break_sso.sh, tests/test_sso.sh
+            break_script="$INSTALL_DIR/scenarios/break_sso.sh"
             ;;
         *)
             echo -e "${RED}Invalid lab selection${NC}"
@@ -533,6 +574,7 @@ show_report_card() {
     local dns_score=""
     local port_score=""
     local proxy_score=""
+    local sso_score=""
 
     # Each scenario variable is overwritten on every matching row, so if a
     # trainee attempted the same lab multiple times only the last score is
@@ -547,6 +589,7 @@ show_report_card() {
             DNS)   dns_score="${score}%"   ;;
             PORT)  port_score="${score}%"  ;;
             PROXY) proxy_score="${score}%" ;;
+            SSO)   sso_score="${score}%"   ;;
         esac
 
         total_score=$((total_score + score))
@@ -557,6 +600,7 @@ show_report_card() {
     echo "  DNS Resolution:  ${dns_score:-Not attempted}"
     echo "  Port Problems:   ${port_score:-Not attempted}"
     echo "  Pull Problems:   ${proxy_score:-Not attempted}"
+    echo "  Login Problems:  ${sso_score:-Not attempted}"
     echo ""
 
     if [ "$lab_count" -gt 0 ]; then
@@ -720,11 +764,11 @@ main() {
         else
             # No active lab menu
             case $choice in
-                [1-3])
+                [1-4])
                     start_lab $choice
                     exit 0
                     ;;
-                4)
+                5)
                     show_report_card
                     read -p "Press enter to continue..."
                     ;;

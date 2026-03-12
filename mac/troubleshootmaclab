@@ -107,11 +107,13 @@ show_main_menu() {
         echo ""
         echo "3. Pull Problems"
         echo ""
-        echo "4. Broken Networking"
+        echo "4. Login Problems"
         echo ""
-        echo "5. CHAOS MODE - All labs at once!"
+        echo "5. Broken Networking"
         echo ""
-        echo "6. View my report card"
+        echo "6. CHAOS MODE - All labs at once!"
+        echo ""
+        echo "7. View my report card"
         echo "0. Exit"
     fi
     
@@ -144,10 +146,14 @@ start_lab() {
             break_script="$INSTALL_DIR/scenarios/break_proxy.sh"
             ;;
         4)
+            lab_name="SSO"        # -> scenarios/break_sso.sh, tests/test_sso.sh
+            break_script="$INSTALL_DIR/scenarios/break_sso.sh"
+            ;;
+        5)
             lab_name="BRIDGE"     # -> scenarios/break_bridge.sh, tests/test_bridge.sh
             break_script="$INSTALL_DIR/scenarios/break_bridge.sh"
             ;;
-        5)
+        6)
             lab_name="CHAOS"      # -> scenarios/break_all.sh, tests/test_chaos.sh
             break_script="$INSTALL_DIR/scenarios/break_all.sh"
             ;;
@@ -293,6 +299,40 @@ Advanced Diagnostics:
 - Look for network subnet conflicts
 
 Fix it by restoring proper network functionality!
+EOF
+            ;;
+        SSO)
+            cat << 'EOF'
+Problem: Docker Desktop keeps signing you out
+
+After starting Docker Desktop, you find yourself signed out.
+When you try to sign back in using SSO, the browser opens and
+you authenticate successfully - but Docker Desktop immediately
+signs you out again.
+
+Symptoms you should observe:
+- Docker Desktop shows you as signed out
+- docker info shows no Username field
+- Surprisingly, docker pull still works for public images
+- SSO loop: browser auth succeeds but Desktop signs out
+
+The fact that pulls work but login doesn't is the key clue.
+Something is selectively blocking certain network destinations
+while leaving others reachable.
+
+Diagnostic Commands to Try:
+  docker info | grep -i username
+  docker pull alpine:latest
+  cat ~/Library/Group\ Containers/group.com.docker/settings-store.json
+  env | grep -i proxy
+
+Look for:
+- ProxyHTTPMode set to "manual" with an unroutable proxy address
+- A ProxyExclude list that covers registries but NOT login endpoints
+- The asymmetry: what works (pulls) vs. what doesn't (auth)
+
+Fix the proxy config so auth endpoints are reachable, then sign
+back in and run troubleshootmaclab --check.
 EOF
             ;;
         PROXY)
@@ -589,6 +629,7 @@ show_report_card() {
     local lab_count=0
     local dns_score=""
     local port_score=""
+    local sso_score=""
     local bridge_score=""
     local proxy_score=""
     local chaos_score=""
@@ -603,6 +644,7 @@ show_report_card() {
         case "$scenario" in
             DNS) dns_score="$score%" ;;
             PORT) port_score="$score%" ;;
+            SSO) sso_score="$score%" ;;
             BRIDGE) bridge_score="$score%" ;;
             PROXY) proxy_score="$score%" ;;
             CHAOS) chaos_score="$score%" ;;
@@ -615,6 +657,7 @@ show_report_card() {
     echo "Lab Scores:"
     echo "  DNS Resolution:      ${dns_score:-Not attempted}"
     echo "  Port Problems:       ${port_score:-Not attempted}"
+    echo "  Login Problems:      ${sso_score:-Not attempted}"
     echo "  Broken Networking:   ${bridge_score:-Not attempted}"
     echo "  Pull Problems:       ${proxy_score:-Not attempted}"
     if [ -n "$chaos_score" ]; then
@@ -786,11 +829,11 @@ main() {
         else
             # Menu when no lab is active
             case $choice in
-                [1-5])
+                [1-6])
                     start_lab $choice
                     exit 0
                     ;;
-                6)
+                7)
                     show_report_card
                     read -p "Press enter to continue..."
                     ;;
