@@ -12,7 +12,8 @@ record_grade() {
     local scenario=$2
     local score=$3
     local duration=$4
-    local timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    local timestamp
+    timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     
     echo "$trainee,$scenario,$score,$timestamp,$duration" >> "$GRADES_FILE"
 }

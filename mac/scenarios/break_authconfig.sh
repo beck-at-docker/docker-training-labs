@@ -44,6 +44,27 @@ if [ ! -f "$SETTINGS_STORE" ]; then
 fi
 
 # ------------------------------------------------------------------
+# Stop Docker Desktop BEFORE modifying settings-store.json.
+#
+# Docker Desktop persists its in-memory configuration back to
+# settings-store.json on clean shutdown. Writing the broken settings
+# first and then quitting would cause the graceful shutdown to
+# overwrite our changes. Stopping the process first prevents that race.
+# ------------------------------------------------------------------
+echo ""
+echo "Stopping Docker Desktop before modifying settings..."
+
+osascript -e 'quit app "Docker Desktop"' 2>/dev/null || true
+
+# Wait for the Docker Desktop process to exit
+for i in $(seq 1 15); do
+    if ! pgrep -x "Docker Desktop" > /dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
+
+# ------------------------------------------------------------------
 # Corrupt the allowedOrgs value in the settings store.
 #
 # The correct format for org enforcement is a JSON array of plain org
@@ -73,30 +94,18 @@ echo "  Settings store updated"
 # ------------------------------------------------------------------
 # Sign out of Docker Hub to force the sign-in prompt.
 #
-# Without this, an existing session token may let Docker Desktop run
-# for a while before the enforcement check fires on token refresh.
-# Logging out ensures the trainee encounters the problem immediately.
+# docker-credential-desktop accesses the macOS Keychain directly and
+# does not require the Docker Desktop process to be running. Running
+# docker logout here (after process exit) is safe.
 # ------------------------------------------------------------------
 docker logout > /dev/null 2>&1 || true
 echo "  Docker Hub credentials cleared"
 
 # ------------------------------------------------------------------
-# Restart Docker Desktop so it reads the updated settings-store.json.
-# Quit via osascript, wait for the process to exit, relaunch, then poll
-# docker info until the daemon is accepting connections (max 60 seconds).
+# Relaunch Docker Desktop so it starts fresh with the broken settings.
 # ------------------------------------------------------------------
 echo ""
 echo "Restarting Docker Desktop to apply settings..."
-
-osascript -e 'quit app "Docker Desktop"' 2>/dev/null || true
-
-# Wait for Docker Desktop process to fully exit
-for i in $(seq 1 15); do
-    if ! pgrep -x "Docker Desktop" > /dev/null 2>&1; then
-        break
-    fi
-    sleep 1
-done
 
 open /Applications/Docker.app
 

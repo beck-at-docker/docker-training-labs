@@ -24,9 +24,6 @@ if ! docker info &>/dev/null; then
     exit 1
 fi
 
-# Remove any daemon.json backup left over from previous lab iterations
-rm -f "$HOME/.docker/daemon.json.break_dns_backup"
-
 # Inject DROP rules for port 53 (UDP and TCP) into the VM's OUTPUT chain.
 if ! docker run --rm --privileged --pid=host alpine:latest \
     nsenter -t 1 -m -u -n -i sh -c '

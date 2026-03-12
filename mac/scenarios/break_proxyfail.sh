@@ -45,6 +45,27 @@ if [ ! -f "$SETTINGS_STORE" ]; then
 fi
 
 # ------------------------------------------------------------------
+# Stop Docker Desktop BEFORE modifying settings-store.json.
+#
+# Docker Desktop persists its in-memory configuration back to
+# settings-store.json on clean shutdown. Writing the broken settings
+# first and then quitting would cause the graceful shutdown to
+# overwrite our changes. Stopping the process first prevents that race.
+# ------------------------------------------------------------------
+echo ""
+echo "Stopping Docker Desktop before modifying settings..."
+
+osascript -e 'quit app "Docker Desktop"' 2>/dev/null || true
+
+# Wait for the Docker Desktop process to exit
+for i in $(seq 1 15); do
+    if ! pgrep -x "Docker Desktop" > /dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
+
+# ------------------------------------------------------------------
 # Corrupt the settings store with a loopback proxy address.
 #
 # 127.0.0.1:9753 routes to the local machine's TCP stack, which responds
@@ -79,21 +100,10 @@ EOF
 echo "  Settings store updated"
 
 # ------------------------------------------------------------------
-# Restart Docker Desktop so it reads the updated settings-store.json.
-# Quit via osascript, wait for process exit, relaunch, then poll
-# docker info until the daemon is accepting connections (max 60 seconds).
+# Relaunch Docker Desktop so it starts fresh with the broken settings.
 # ------------------------------------------------------------------
 echo ""
 echo "Restarting Docker Desktop to apply proxy settings..."
-
-osascript -e 'quit app "Docker Desktop"' 2>/dev/null || true
-
-for i in $(seq 1 15); do
-    if ! pgrep -x "Docker Desktop" > /dev/null 2>&1; then
-        break
-    fi
-    sleep 1
-done
 
 open /Applications/Docker.app
 

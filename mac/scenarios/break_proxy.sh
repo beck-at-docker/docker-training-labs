@@ -44,6 +44,27 @@ if [ ! -f "$SETTINGS_STORE" ]; then
 fi
 
 # ------------------------------------------------------------------
+# Stop Docker Desktop BEFORE modifying settings-store.json.
+#
+# Docker Desktop persists its in-memory configuration back to
+# settings-store.json on clean shutdown. Writing the broken settings
+# first and then quitting would cause the graceful shutdown to
+# overwrite our changes. Stopping the process first prevents that race.
+# ------------------------------------------------------------------
+echo ""
+echo "Stopping Docker Desktop before modifying settings..."
+
+osascript -e 'quit app "Docker Desktop"' 2>/dev/null || true
+
+# Wait for the Docker Desktop process to exit
+for i in $(seq 1 15); do
+    if ! pgrep -x "Docker Desktop" > /dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
+
+# ------------------------------------------------------------------
 # Method 1: Corrupt the Docker Desktop settings store
 #
 # Python3 is used to merge the proxy keys into the existing JSON rather
@@ -113,23 +134,10 @@ EOF
 echo "  Shell RC updated: $SHELL_RC"
 
 # ------------------------------------------------------------------
-# Restart Docker Desktop so it reads the new settings-store.json.
-# We quit cleanly via osascript, wait for the process to exit, then
-# relaunch and poll docker info until the daemon is accepting connections
-# (or we time out after 60 seconds).
+# Relaunch Docker Desktop so it starts fresh with the broken settings.
 # ------------------------------------------------------------------
 echo ""
 echo "Restarting Docker Desktop to apply proxy settings..."
-
-osascript -e 'quit app "Docker Desktop"' 2>/dev/null || true
-
-# Wait for the Docker Desktop process to exit
-for i in $(seq 1 15); do
-    if ! pgrep -x "Docker Desktop" > /dev/null 2>&1; then
-        break
-    fi
-    sleep 1
-done
 
 # Relaunch Docker Desktop
 open /Applications/Docker.app
