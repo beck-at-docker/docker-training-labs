@@ -32,7 +32,7 @@
 #
 # Scenario name convention
 # ------------------------
-#   Lab names (DNS, PORT, BRIDGE, PROXY, CHAOS) are stored verbatim in
+#   Lab names (DNS, PORT, BRIDGE, PROXY, SSO, AUTHCONFIG, PROXYFAIL) are stored verbatim in
 #   config.json and lowercased at runtime to derive filenames:
 #     break_dns.sh / test_dns.sh, break_ports.sh / test_port.sh, etc.
 
@@ -115,9 +115,7 @@ show_main_menu() {
         echo ""
         echo "7. Proxy Connection Issues"
         echo ""
-        echo "8. CHAOS MODE - All labs at once!"
-        echo ""
-        echo "9. View my report card"
+        echo "8. View my report card"
         echo "0. Exit"
     fi
     
@@ -164,10 +162,6 @@ start_lab() {
         7)
             lab_name="PROXYFAIL"  # -> scenarios/break_proxyfail.sh, tests/test_proxyfail.sh
             break_script="$INSTALL_DIR/scenarios/break_proxyfail.sh"
-            ;;
-        8)
-            lab_name="CHAOS"      # -> scenarios/break_all.sh, tests/test_chaos.sh
-            break_script="$INSTALL_DIR/scenarios/break_all.sh"
             ;;
         *)
             echo -e "${RED}Invalid lab selection${NC}"
@@ -458,31 +452,6 @@ Look for:
 Fix the proxy config and restart Docker Desktop to resolve!
 EOF
             ;;
-        CHAOS)
-            cat << 'EOF'
-Problem: EVERYTHING IS BROKEN
-
-Multiple systems have failed simultaneously. You'll need to
-diagnose and fix multiple issues:
-- DNS resolution
-- Port conflicts
-- Network connectivity
-- Proxy configuration
-
-This simulates a real disaster scenario where multiple things
-go wrong at once. Prioritize wisely and fix systematically!
-
-Symptoms: Too many to list. You'll know it when you see it.
-
-Tip: Fix issues in order of dependency:
-1. Network/Bridge issues (affects everything)
-2. DNS issues (affects external connectivity)
-3. Proxy issues (affects registries)
-4. Port conflicts (affects services)
-
-Good luck. You'll need it.
-EOF
-            ;;
     esac
 }
 
@@ -724,7 +693,6 @@ show_report_card() {
     local proxy_score=""
     local authconfig_score=""
     local proxyfail_score=""
-    local chaos_score=""
     
     # Each scenario variable is overwritten on every matching row, so if a
     # trainee attempted the same lab multiple times only the last score is
@@ -741,7 +709,6 @@ show_report_card() {
             PROXY)      proxy_score="$score%" ;;
             AUTHCONFIG) authconfig_score="$score%" ;;
             PROXYFAIL)  proxyfail_score="$score%" ;;
-            CHAOS)      chaos_score="$score%" ;;
         esac
         
         total_score=$((total_score + score))
@@ -756,9 +723,6 @@ show_report_card() {
     echo "  Pull Problems:       ${proxy_score:-Not attempted}"
     echo "  Auth Config Errors:  ${authconfig_score:-Not attempted}"
     echo "  Proxy Conn Issues:   ${proxyfail_score:-Not attempted}"
-    if [ -n "$chaos_score" ]; then
-        echo "  CHAOS MODE:          $chaos_score"
-    fi
     echo ""
     
     if [ $lab_count -gt 0 ]; then
@@ -925,11 +889,11 @@ main() {
         else
             # Menu when no lab is active
             case $choice in
-                [1-8])
+                [1-7])
                     start_lab $choice
                     exit 0
                     ;;
-                9)
+                8)
                     show_report_card
                     read -p "Press enter to continue..."
                     ;;
