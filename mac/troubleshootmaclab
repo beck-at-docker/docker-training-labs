@@ -111,9 +111,13 @@ show_main_menu() {
         echo ""
         echo "5. Broken Networking"
         echo ""
-        echo "6. CHAOS MODE - All labs at once!"
+        echo "6. Auth Config Errors"
         echo ""
-        echo "7. View my report card"
+        echo "7. Proxy Connection Issues"
+        echo ""
+        echo "8. CHAOS MODE - All labs at once!"
+        echo ""
+        echo "9. View my report card"
         echo "0. Exit"
     fi
     
@@ -154,6 +158,14 @@ start_lab() {
             break_script="$INSTALL_DIR/scenarios/break_bridge.sh"
             ;;
         6)
+            lab_name="AUTHCONFIG" # -> scenarios/break_authconfig.sh, tests/test_authconfig.sh
+            break_script="$INSTALL_DIR/scenarios/break_authconfig.sh"
+            ;;
+        7)
+            lab_name="PROXYFAIL"  # -> scenarios/break_proxyfail.sh, tests/test_proxyfail.sh
+            break_script="$INSTALL_DIR/scenarios/break_proxyfail.sh"
+            ;;
+        8)
             lab_name="CHAOS"      # -> scenarios/break_all.sh, tests/test_chaos.sh
             break_script="$INSTALL_DIR/scenarios/break_all.sh"
             ;;
@@ -366,6 +378,84 @@ Look for:
 - HTTP_PROXY / HTTPS_PROXY set in your shell environment
 
 Fix both layers to fully resolve the issue!
+EOF
+            ;;
+        AUTHCONFIG)
+            cat << 'EOF'
+Problem: Docker Desktop keeps signing you out immediately
+
+After restarting Docker Desktop, you find yourself signed out.
+When you attempt to sign in via SSO, the browser auth completes
+successfully - but Docker Desktop immediately signs you out again.
+This happens every single time, with no error message explaining why.
+
+Unlike the SSO lab, the proxy configuration is clean. Something
+else in Docker Desktop's settings is causing every authenticated
+session to be rejected the moment it is established.
+
+Symptoms you should observe:
+- Docker Desktop shows you as signed out on startup
+- docker info shows no Username field
+- SSO loop: browser completes but Desktop immediately logs out
+- docker pull still works for public images (daemon is healthy)
+- No proxy errors in Docker Desktop logs
+
+The fact that the daemon runs fine and pulls work rules out a
+proxy or network problem. The issue is in how Docker Desktop is
+configured to validate who is allowed to be signed in.
+
+Diagnostic Commands to Try:
+  docker info | grep -i username
+  docker pull alpine:latest
+  cat ~/Library/Group\ Containers/group.com.docker/settings-store.json
+
+Look for:
+- The allowedOrgs key in settings-store.json
+- Its value format: should be a plain org slug like ["my-company"]
+  not a URL like ["https://hub.docker.com/u/my-company"]
+
+Fix the allowedOrgs value, restart Docker Desktop, sign back in,
+then run troubleshootmaclab --check.
+EOF
+            ;;
+        PROXYFAIL)
+            cat << 'EOF'
+Problem: Docker cannot reach external registries
+
+Your Docker Desktop cannot pull images. Attempts fail immediately
+with a connection error - there is no timeout, the failure is
+instant. Container internet access is also broken.
+
+This is a proxy misconfiguration, but the error behaviour is
+different from a misconfigured proxy that simply doesn't route
+traffic. Pay attention to whether the error says "connection
+refused" or "connection timed out" - that distinction tells you
+exactly what kind of proxy problem you're dealing with.
+
+On Mac, Docker Desktop manages proxy settings independently of
+~/.docker/daemon.json. The canonical location to check is:
+
+  ~/Library/Group Containers/group.com.docker/settings-store.json
+
+Symptoms you should observe:
+- docker pull fails immediately (no long wait before error)
+- Error message includes "connection refused"
+- Containers can't reach the internet
+- Host machine internet access works fine
+- No bogus proxy variables in shell environment (env | grep -i proxy)
+
+Diagnostic Commands to Try:
+  docker pull hello-world
+  docker info | grep -i proxy
+  cat ~/Library/Group\ Containers/group.com.docker/settings-store.json
+  env | grep -i proxy
+
+Look for:
+- ProxyHTTPMode set to "manual"
+- ProxyHTTP / ProxyHTTPS pointing to a loopback address (127.0.0.1)
+  with a port that has nothing listening on it
+
+Fix the proxy config and restart Docker Desktop to resolve!
 EOF
             ;;
         CHAOS)
@@ -632,6 +722,8 @@ show_report_card() {
     local sso_score=""
     local bridge_score=""
     local proxy_score=""
+    local authconfig_score=""
+    local proxyfail_score=""
     local chaos_score=""
     
     # Each scenario variable is overwritten on every matching row, so if a
@@ -642,12 +734,14 @@ show_report_card() {
         if [ "$trainee" != "$USER" ]; then continue; fi
         
         case "$scenario" in
-            DNS) dns_score="$score%" ;;
-            PORT) port_score="$score%" ;;
-            SSO) sso_score="$score%" ;;
-            BRIDGE) bridge_score="$score%" ;;
-            PROXY) proxy_score="$score%" ;;
-            CHAOS) chaos_score="$score%" ;;
+            DNS)        dns_score="$score%" ;;
+            PORT)       port_score="$score%" ;;
+            SSO)        sso_score="$score%" ;;
+            BRIDGE)     bridge_score="$score%" ;;
+            PROXY)      proxy_score="$score%" ;;
+            AUTHCONFIG) authconfig_score="$score%" ;;
+            PROXYFAIL)  proxyfail_score="$score%" ;;
+            CHAOS)      chaos_score="$score%" ;;
         esac
         
         total_score=$((total_score + score))
@@ -660,6 +754,8 @@ show_report_card() {
     echo "  Login Problems:      ${sso_score:-Not attempted}"
     echo "  Broken Networking:   ${bridge_score:-Not attempted}"
     echo "  Pull Problems:       ${proxy_score:-Not attempted}"
+    echo "  Auth Config Errors:  ${authconfig_score:-Not attempted}"
+    echo "  Proxy Conn Issues:   ${proxyfail_score:-Not attempted}"
     if [ -n "$chaos_score" ]; then
         echo "  CHAOS MODE:          $chaos_score"
     fi
@@ -829,11 +925,11 @@ main() {
         else
             # Menu when no lab is active
             case $choice in
-                [1-6])
+                [1-8])
                     start_lab $choice
                     exit 0
                     ;;
-                7)
+                9)
                     show_report_card
                     read -p "Press enter to continue..."
                     ;;
