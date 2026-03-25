@@ -82,7 +82,7 @@ done
 #   ProxyExclude         - registry hosts only, auth endpoints absent
 #   ContainersProxy*     - left at system so containers are unaffected
 # ------------------------------------------------------------------
-cp "$SETTINGS_STORE" "${SETTINGS_STORE}.backup-${BACKUP_TIMESTAMP}"
+cp "$SETTINGS_STORE" "${SETTINGS_STORE}.backup-sso-${BACKUP_TIMESTAMP}"
 
 python3 - "$SETTINGS_STORE" << 'EOF'
 import json, sys
@@ -153,6 +153,6 @@ fi
 
 echo ""
 echo "Docker Desktop broken"
-echo "Backup saved: ${SETTINGS_STORE}.backup-${BACKUP_TIMESTAMP}"
+echo "Backup saved: ${SETTINGS_STORE}.backup-sso-${BACKUP_TIMESTAMP}"
 echo ""
 echo "Symptom: SSO sign-in loop; image pulls still work"

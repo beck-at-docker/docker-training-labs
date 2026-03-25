@@ -36,12 +36,14 @@ if [ -f "$DOCKER_CONFIG" ]; then
     DAEMON_BACKUP_CREATED=1
 fi
 
-# Write broken proxy config
+# Write broken proxy config. Use the same RFC 5737 TEST-NET address (192.0.2.1)
+# that the shell RC method uses below, so both mechanisms point to the same
+# bogus proxy. Having two different addresses is confusing during diagnosis.
 cat > "$DOCKER_CONFIG" << 'EOF'
 {
   "proxies": {
-    "http-proxy": "http://invalid-proxy.local:3128",
-    "https-proxy": "http://invalid-proxy.local:3128"
+    "http-proxy": "http://192.0.2.1:8080",
+    "https-proxy": "http://192.0.2.1:8080"
   }
 }
 EOF

@@ -46,7 +46,7 @@ if (-not (Test-Path $settingsStore)) {
 # back. Merging (rather than replacing) preserves all other settings so
 # Docker Desktop starts cleanly after the restart.
 # ------------------------------------------------------------------
-$backupPath = "${settingsStore}.backup-${timestamp}"
+$backupPath = "${settingsStore}.backup-proxy-${timestamp}"
 Copy-Item $settingsStore $backupPath
 
 $data = Get-Content $settingsStore -Raw | ConvertFrom-Json

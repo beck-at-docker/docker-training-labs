@@ -12,14 +12,15 @@ echo ""
 echo "Breaking Docker Desktop..."
 echo ""
 
-# Run all break scripts in order: proxy first (triggers Docker restart), then
-# ports, then DNS and bridge (iptables rules injected after the restart persist
-# until the trainee fixes them). Progress output is intentionally cryptic to
-# avoid hinting at the break mechanisms.
-bash "$SCRIPT_DIR/break_proxy.sh"
+# Run all break scripts in order: ports first (so container images are pulled
+# while outbound connectivity is still intact), then proxy (triggers a Docker
+# restart), then DNS and bridge (iptables rules injected after the restart
+# persist until the trainee fixes them). Progress output is intentionally
+# cryptic to avoid hinting at the break mechanisms.
+bash "$SCRIPT_DIR/break_ports.sh"
 echo "working..."
 
-bash "$SCRIPT_DIR/break_ports.sh"
+bash "$SCRIPT_DIR/break_proxy.sh"
 echo "working..."
 
 bash "$SCRIPT_DIR/break_dns.sh"

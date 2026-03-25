@@ -78,7 +78,7 @@ done
 #   ContainersProxyHTTP / ContainersProxyHTTPS - container-level bogus proxy
 #   ProxyExclude / ContainersProxyExclude   - empty, so nothing bypasses it
 # ------------------------------------------------------------------
-cp "$SETTINGS_STORE" "${SETTINGS_STORE}.backup-${BACKUP_TIMESTAMP}"
+cp "$SETTINGS_STORE" "${SETTINGS_STORE}.backup-proxy-${BACKUP_TIMESTAMP}"
 
 python3 - "$SETTINGS_STORE" << 'EOF'
 import json, sys
@@ -161,7 +161,7 @@ fi
 echo ""
 echo "Docker Desktop broken"
 echo "Backups saved:"
-echo "  ${SETTINGS_STORE}.backup-${BACKUP_TIMESTAMP}"
+echo "  ${SETTINGS_STORE}.backup-proxy-${BACKUP_TIMESTAMP}"
 echo "  ${SHELL_RC}.backup-${BACKUP_TIMESTAMP}"
 echo ""
 echo "Symptoms: Image pulls fail, container internet access fails"

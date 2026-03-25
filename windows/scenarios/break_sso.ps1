@@ -59,7 +59,7 @@ if (-not (Test-Path $settingsStore)) {
 # Add-Member -Force is used because direct property assignment on
 # ConvertFrom-Json objects is unreliable in PS5.1.
 # ------------------------------------------------------------------
-$backupPath = "${settingsStore}.backup-${timestamp}"
+$backupPath = "${settingsStore}.backup-sso-${timestamp}"
 Copy-Item $settingsStore $backupPath
 
 $data = Get-Content $settingsStore -Raw | ConvertFrom-Json

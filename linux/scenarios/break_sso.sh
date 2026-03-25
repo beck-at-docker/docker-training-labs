@@ -109,8 +109,38 @@ fi
 docker logout > /dev/null 2>&1 || true
 echo "  Docker Hub credentials cleared"
 
+# ------------------------------------------------------------------
+# Restart Docker Desktop so it reads the updated settings.
+# On Linux, Docker Desktop is managed as a systemd user service.
+# ------------------------------------------------------------------
 echo ""
-echo "IMPORTANT: Restart Docker Desktop for proxy changes to take effect"
+echo "Restarting Docker Desktop to apply proxy settings..."
+
+if systemctl --user restart docker-desktop 2>/dev/null; then
+    echo "  Restart signal sent via systemctl"
+else
+    # systemctl failed (e.g. not installed as a service) - fall back to
+    # killing the process. The user will need to relaunch manually.
+    pkill -f "docker-desktop" 2>/dev/null || true
+    echo "  Warning: Could not restart Docker Desktop automatically via systemctl"
+    echo "  Please restart Docker Desktop manually before attempting to sign in"
+fi
+
+echo "  Waiting for Docker Desktop to restart..."
+DOCKER_READY=0
+for i in $(seq 1 30); do
+    if docker info &>/dev/null 2>&1; then
+        DOCKER_READY=1
+        break
+    fi
+    sleep 2
+done
+
+if [ "$DOCKER_READY" -eq 0 ]; then
+    echo "  Warning: Docker Desktop did not come back within 60s"
+    echo "  Wait a moment before attempting to sign in"
+fi
+
 echo ""
 echo "Docker Desktop broken"
 echo ""

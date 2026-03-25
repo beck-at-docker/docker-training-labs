@@ -73,7 +73,7 @@ done
 # that port. Both daemon-level and container-level proxy keys are written
 # so both docker pull and container internet access fail consistently.
 # ------------------------------------------------------------------
-cp "$SETTINGS_STORE" "${SETTINGS_STORE}.backup-${BACKUP_TIMESTAMP}"
+cp "$SETTINGS_STORE" "${SETTINGS_STORE}.backup-proxyfail-${BACKUP_TIMESTAMP}"
 
 python3 - "$SETTINGS_STORE" "$BROKEN_PROXY" << 'EOF'
 import json, sys
@@ -124,6 +124,6 @@ fi
 
 echo ""
 echo "Docker Desktop broken"
-echo "Backup saved: ${SETTINGS_STORE}.backup-${BACKUP_TIMESTAMP}"
+echo "Backup saved: ${SETTINGS_STORE}.backup-proxyfail-${BACKUP_TIMESTAMP}"
 echo ""
 echo "Symptoms: Image pulls fail with connection refused; container internet access fails"

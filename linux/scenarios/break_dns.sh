@@ -17,7 +17,7 @@
 
 set -e
 
-echo "Breaking Docker Desktop ..."
+echo "Breaking Docker Desktop..."
 
 # Confirm Docker Desktop is running before attempting anything
 if ! docker info &>/dev/null; then

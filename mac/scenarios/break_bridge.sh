@@ -1,17 +1,11 @@
 #!/bin/bash
 # break_bridge.sh - Corrupts Docker's default bridge network
 #
-# Two separate mechanisms are used together to make the break harder to diagnose:
-#
-#   1. Subnet conflict: creates two custom networks with the same 172.17.0.0/16
-#      subnet as the default bridge. This causes Docker to log confusing
-#      errors and can prevent new containers from getting valid IPs.
-#
-#   2. iptables DROP rule: inserts a rule at the top of the FORWARD chain
-#      that drops all traffic from docker0. This is the primary break -
-#      containers start and get IPs but have no connectivity.
-#      The nsenter privileged container is required because iptables rules
-#      live inside the Docker Desktop VM, not on the macOS host.
+# Mechanism: inserts a DROP rule at the top of the FORWARD chain for all
+# traffic originating from docker0. Containers start and receive IPs normally
+# because Docker's control plane is unaffected; only data-plane forwarding is
+# blocked. The nsenter privileged container is required because iptables rules
+# live inside the Docker Desktop VM, not on the macOS host.
 #
 # The started containers (broken-web, broken-app) give trainees something to
 # inspect. Their existence demonstrates that Docker itself is running fine;
@@ -21,33 +15,16 @@ set -e
 
 echo "Breaking Docker Desktop..."
 
-# Remove any existing fake bridge networks first
-docker network rm fake-bridge-1 fake-bridge-2 2>/dev/null || true
-
-# Clean up any leftover test containers
+# Clean up any leftover test containers from a previous run
 docker rm -f broken-web broken-app 2>/dev/null || true
 
-# Give Docker a moment to clean up
-sleep 1
-
-# Create overlapping custom networks that conflict with default bridge
-docker network create --subnet=172.17.0.0/16 fake-bridge-1
-docker network create --subnet=172.17.0.0/16 fake-bridge-2 2>/dev/null || true
-
-# Corrupt the default bridge by messing with iptables in the VM
+# Insert a DROP rule at position 1 in the FORWARD chain for all traffic from
+# docker0. Containers will start and get IPs normally - only forwarding is
+# broken, which is the intended diagnostic challenge.
 docker run --rm --privileged --pid=host alpine:latest nsenter -t 1 -m -u -n -i sh -c '
-    # Save existing rules for reference
-    iptables-save > /tmp/iptables.backup 2>/dev/null || true
-    
-    # Delete Docker chain rules (may not all exist, ignore errors)
-    iptables -D FORWARD -o docker0 -j DOCKER 2>/dev/null || true
-    iptables -D FORWARD -o docker0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || true
-    iptables -D FORWARD -i docker0 ! -o docker0 -j ACCEPT 2>/dev/null || true
-    iptables -D FORWARD -i docker0 -o docker0 -j ACCEPT 2>/dev/null || true
-    
-    # Add conflicting rule at the top of FORWARD chain
-    # This blocks all traffic from docker0 interface
-    iptables -I FORWARD 1 -i docker0 -j DROP 2>/dev/null || true
+    # Delete any stale DROP rule from a previous run, then re-insert at the top
+    iptables -D FORWARD -i docker0 -j DROP 2>/dev/null || true
+    iptables -I FORWARD 1 -i docker0 -j DROP
 '
 
 # Create containers that appear to work but can't communicate
