@@ -14,6 +14,7 @@ echo "This will fix:"
 echo "  1. DNS Resolution"
 echo "  2. Port Conflicts"
 echo "  3. Proxy Configuration"
+echo "  4. SSO Proxy Configuration"
 echo ""
 read -p "Continue? (y/N): " confirm
 if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
@@ -25,20 +26,26 @@ echo ""
 echo "=========================================="
 
 echo ""
-echo "[1/3] Fixing DNS Resolution..."
+echo "[1/4] Fixing DNS Resolution..."
 bash "$SCRIPT_DIR/dns.sh"
 
 echo ""
 echo "=========================================="
 echo ""
-echo "[2/3] Fixing Port Conflicts..."
+echo "[2/4] Fixing Port Conflicts..."
 bash "$SCRIPT_DIR/ports.sh"
 
 echo ""
 echo "=========================================="
 echo ""
-echo "[3/3] Fixing Proxy Configuration..."
+echo "[3/4] Fixing Proxy Configuration..."
 bash "$SCRIPT_DIR/proxy.sh"
+
+echo ""
+echo "=========================================="
+echo ""
+echo "[4/4] Fixing SSO Proxy Configuration..."
+bash "$SCRIPT_DIR/sso.sh"
 
 echo ""
 echo "=========================================="

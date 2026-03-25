@@ -47,7 +47,7 @@ echo "Checking Docker Desktop settings store..."
 
 if [ -f "$SETTINGS_STORE" ]; then
     # Check for the most recent backup
-    LATEST_BACKUP=$(ls -t "${SETTINGS_STORE}.backup-"* 2>/dev/null | head -1)
+    LATEST_BACKUP=$(ls -t "${SETTINGS_STORE}.backup-proxy-"* 2>/dev/null | head -1)
 
     if [ -n "$LATEST_BACKUP" ]; then
         cp "$LATEST_BACKUP" "$SETTINGS_STORE"

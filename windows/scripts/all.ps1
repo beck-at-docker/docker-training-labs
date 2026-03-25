@@ -13,6 +13,7 @@ Write-Host "This will fix:"
 Write-Host "  1. DNS Resolution"
 Write-Host "  2. Port Conflicts"
 Write-Host "  3. Proxy Configuration"
+Write-Host "  4. SSO Proxy Configuration"
 Write-Host ""
 $confirm = Read-Host "Continue? (y/N)"
 if ($confirm -notmatch "^[yY]$") {
@@ -23,20 +24,30 @@ if ($confirm -notmatch "^[yY]$") {
 Write-Host ""
 Write-Host "=========================================="
 Write-Host ""
-Write-Host "[1/3] Fixing DNS Resolution..."
+Write-Host "[1/4] Fixing DNS Resolution..."
 & "$SCRIPT_DIR\dns.ps1"
+if ($LASTEXITCODE -ne 0) { throw "dns.ps1 failed with exit code $LASTEXITCODE" }
 
 Write-Host ""
 Write-Host "=========================================="
 Write-Host ""
-Write-Host "[2/3] Fixing Port Conflicts..."
+Write-Host "[2/4] Fixing Port Conflicts..."
 & "$SCRIPT_DIR\ports.ps1"
+if ($LASTEXITCODE -ne 0) { throw "ports.ps1 failed with exit code $LASTEXITCODE" }
 
 Write-Host ""
 Write-Host "=========================================="
 Write-Host ""
-Write-Host "[3/3] Fixing Proxy Configuration..."
+Write-Host "[3/4] Fixing Proxy Configuration..."
 & "$SCRIPT_DIR\proxy.ps1"
+if ($LASTEXITCODE -ne 0) { throw "proxy.ps1 failed with exit code $LASTEXITCODE" }
+
+Write-Host ""
+Write-Host "=========================================="
+Write-Host ""
+Write-Host "[4/4] Fixing SSO Proxy Configuration..."
+& "$SCRIPT_DIR\sso.ps1"
+if ($LASTEXITCODE -ne 0) { throw "sso.ps1 failed with exit code $LASTEXITCODE" }
 
 Write-Host ""
 Write-Host "=========================================="

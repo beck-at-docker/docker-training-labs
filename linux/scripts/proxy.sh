@@ -38,7 +38,7 @@ DOCKER_CONFIG="$HOME/.docker/daemon.json"
 # Fix daemon.json
 echo "Checking daemon.json..."
 if [ -f "$DOCKER_CONFIG" ]; then
-    if grep -q "invalid-proxy.local" "$DOCKER_CONFIG" 2>/dev/null; then
+    if grep -q "192\.0\.2\.1" "$DOCKER_CONFIG" 2>/dev/null; then
         echo "  Found broken proxy config"
 
         # Check for backup

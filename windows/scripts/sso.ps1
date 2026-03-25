@@ -40,7 +40,7 @@ Write-Host "Checking Docker Desktop settings store..."
 if (Test-Path $settingsStore) {
     $backupDir = Split-Path $settingsStore
     $backups   = Get-ChildItem -Path $backupDir `
-                               -Filter "settings-store.json.backup-*" `
+                               -Filter "settings-store.json.backup-sso-*" `
                                -ErrorAction SilentlyContinue |
                  Sort-Object LastWriteTime -Descending
 

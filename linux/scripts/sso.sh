@@ -93,12 +93,42 @@ if [ -f "$DAEMON_CONFIG" ]; then
     fi
 fi
 
+# ------------------------------------------------------------------
+# Restart Docker Desktop to apply the restored settings
+# ------------------------------------------------------------------
+echo ""
+echo "Restarting Docker Desktop to apply restored settings..."
+
+if systemctl --user restart docker-desktop 2>/dev/null; then
+    echo "  Restart signal sent via systemctl"
+else
+    pkill -f "docker-desktop" 2>/dev/null || true
+    echo "  Warning: Could not restart Docker Desktop automatically via systemctl"
+    echo "  Please restart Docker Desktop manually"
+fi
+
+echo "  Waiting for Docker Desktop to restart..."
+DOCKER_READY=0
+for i in $(seq 1 30); do
+    if docker info &>/dev/null 2>&1; then
+        DOCKER_READY=1
+        break
+    fi
+    sleep 2
+done
+
+if [ "$DOCKER_READY" -eq 0 ]; then
+    echo "  Warning: Docker Desktop did not come back within 60s"
+else
+    echo "  Docker Desktop is running"
+fi
+
 echo ""
 echo "SSO proxy configuration cleaned up"
 echo ""
-echo "IMPORTANT:"
-echo "  1. Restart Docker Desktop for changes to take effect"
-echo "  2. Sign back in: docker login"
+echo "NOTE: Credentials were cleared by the break script and cannot be"
+echo "automatically restored. Sign back in:"
+echo "  docker login"
 echo ""
 
 _reset_lab_state

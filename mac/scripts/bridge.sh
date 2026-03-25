@@ -33,45 +33,19 @@ EOF
 
 echo "Restoring Docker bridge network..."
 
-# Remove conflicting networks
-echo "Removing conflicting networks..."
-docker network rm fake-bridge-1 2>/dev/null && echo "  Removed fake-bridge-1" || true
-docker network rm fake-bridge-2 2>/dev/null && echo "  Removed fake-bridge-2" || true
-
 # Remove test containers
-echo ""
 echo "Removing test containers..."
 docker rm -f broken-web 2>/dev/null && echo "  Removed broken-web" || true
 docker rm -f broken-app 2>/dev/null && echo "  Removed broken-app" || true
 
-# Restore iptables rules in the Docker VM
+# Remove the DROP rule injected by break_bridge.sh. The Docker chain rules
+# are untouched by the break and do not need to be restored.
 echo ""
 echo "Restoring iptables rules..."
 docker run --rm --privileged --pid=host alpine:latest nsenter -t 1 -m -u -n -i sh -c '
-    # Remove the blocking DROP rule
     iptables -D FORWARD -i docker0 -j DROP 2>/dev/null || true
-    
-    # Restore Docker FORWARD chain rules if missing
-    # Check if DOCKER chain exists
-    if ! iptables -L DOCKER -n > /dev/null 2>&1; then
-        iptables -N DOCKER 2>/dev/null || true
-    fi
-    
-    # Re-add standard Docker rules if missing
-    iptables -C FORWARD -o docker0 -j DOCKER 2>/dev/null || \
-        iptables -A FORWARD -o docker0 -j DOCKER
-    
-    iptables -C FORWARD -o docker0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
-        iptables -A FORWARD -o docker0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
-    
-    iptables -C FORWARD -i docker0 ! -o docker0 -j ACCEPT 2>/dev/null || \
-        iptables -A FORWARD -i docker0 ! -o docker0 -j ACCEPT
-    
-    iptables -C FORWARD -i docker0 -o docker0 -j ACCEPT 2>/dev/null || \
-        iptables -A FORWARD -i docker0 -o docker0 -j ACCEPT
-    
-    echo "iptables rules restored"
-' || echo "  Manual iptables restore failed, restarting Docker Desktop recommended"
+    echo "DROP rule removed"
+' || echo "  iptables restore failed - restarting Docker Desktop is recommended"
 
 # Verify the fix
 echo ""

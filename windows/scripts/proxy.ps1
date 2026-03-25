@@ -44,7 +44,7 @@ if (Test-Path $settingsStore) {
     # Look for the most recent backup created by break_proxy.ps1
     $backupDir = Split-Path $settingsStore
     $backups = Get-ChildItem -Path $backupDir `
-                             -Filter "settings-store.json.backup-*" `
+                             -Filter "settings-store.json.backup-proxy-*" `
                              -ErrorAction SilentlyContinue |
                Sort-Object LastWriteTime -Descending
 

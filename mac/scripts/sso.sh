@@ -49,7 +49,7 @@ echo "Removing broken SSO proxy configuration..."
 echo "Checking Docker Desktop settings store..."
 
 if [ -f "$SETTINGS_STORE" ]; then
-    LATEST_BACKUP=$(ls -t "${SETTINGS_STORE}.backup-"* 2>/dev/null | head -1)
+    LATEST_BACKUP=$(ls -t "${SETTINGS_STORE}.backup-sso-"* 2>/dev/null | head -1)
 
     if [ -n "$LATEST_BACKUP" ]; then
         cp "$LATEST_BACKUP" "$SETTINGS_STORE"
