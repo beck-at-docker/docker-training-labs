@@ -142,7 +142,14 @@ echo "Restarting Docker Desktop to apply proxy settings..."
 # Relaunch Docker Desktop
 open /Applications/Docker.app
 
-# Poll until the daemon is back up (max 60 seconds)
+# Poll in two stages:
+#
+#   Stage 1 - wait for the daemon to be up (docker info succeeds)
+#   Stage 2 - wait for the proxy to be active (docker info reports 192.0.2.1)
+#
+# Stage 2 is necessary because Docker Desktop accepts connections before it
+# has fully applied settings-store.json. Without it, --check can run before
+# the proxy is live and see pulls succeeding when they should be failing.
 echo "  Waiting for Docker Desktop to restart..."
 DOCKER_READY=0
 for i in $(seq 1 30); do
@@ -156,6 +163,21 @@ done
 if [ "$DOCKER_READY" -eq 0 ]; then
     echo "  Warning: Docker Desktop did not come back within 60s"
     echo "  You may need to wait a moment before the break is fully active"
+else
+    echo "  Daemon is up, waiting for proxy settings to take effect..."
+    PROXY_ACTIVE=0
+    for i in $(seq 1 15); do
+        if docker info 2>/dev/null | grep -q "192.0.2.1"; then
+            PROXY_ACTIVE=1
+            break
+        fi
+        sleep 2
+    done
+
+    if [ "$PROXY_ACTIVE" -eq 0 ]; then
+        echo "  Warning: Proxy settings did not appear in docker info within 30s"
+        echo "  You may need to wait a moment before the break is fully active"
+    fi
 fi
 
 echo ""

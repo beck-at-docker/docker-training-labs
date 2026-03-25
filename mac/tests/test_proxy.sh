@@ -26,7 +26,7 @@ test_fixed_state() {
         "docker pull alpine:latest > /dev/null 2>&1"
 
     run_test "Containers can reach the internet" \
-        "docker run --rm alpine:latest wget -q -O- https://google.com > /dev/null"
+        "docker run --rm alpine:latest wget -q -O- http://example.com > /dev/null"
 
     # Check that the settings store no longer has the bogus proxy address.
     # This is the authoritative proxy config on Mac Docker Desktop.
