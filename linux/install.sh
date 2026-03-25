@@ -119,6 +119,36 @@ fi
 echo "  Training environment initialised"
 echo ""
 
+# Append a fix-docker-proxy shell function to the user's .bashrc so that
+# bogus proxy environment variables injected by break_proxy.sh can be
+# cleared in the live terminal without opening a new one. Fix scripts run
+# in a subprocess and cannot unset vars in the parent shell directly.
+#
+# The sentinel guard prevents the block from being appended more than once
+# if bootstrap is re-run.
+echo "Configuring shell helper..."
+BASHRC="$HOME/.bashrc"
+if [ -f "$BASHRC" ] && ! grep -q "BEGIN DOCKER TRAINING LABS" "$BASHRC"; then
+    cat >> "$BASHRC" << 'EOF'
+
+# BEGIN DOCKER TRAINING LABS
+# Shell helper installed by docker-training-labs bootstrap.
+# Clears proxy environment variables injected by break_proxy.sh in the
+# current terminal without requiring a new terminal to be opened.
+fix-docker-proxy() {
+    unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
+    echo "Proxy environment variables cleared for this terminal."
+}
+# END DOCKER TRAINING LABS
+EOF
+    echo "  Shell helper 'fix-docker-proxy' added to $BASHRC"
+elif [ ! -f "$BASHRC" ]; then
+    echo "  Note: $BASHRC not found, skipping shell helper"
+else
+    echo "  Shell helper already present in $BASHRC"
+fi
+echo ""
+
 echo "=========================================="
 echo "Installation Complete!"
 echo "=========================================="

@@ -95,9 +95,6 @@ for rc_file in "$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.bashrc"; do
     fi
 done
 
-# Clean up environment variables in current shell
-unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
-
 # ------------------------------------------------------------------
 # Restart Docker Desktop to apply the restored settings
 # ------------------------------------------------------------------
@@ -142,7 +139,7 @@ fi
 echo ""
 echo "Proxy configuration cleaned up"
 echo ""
-echo "Open a new terminal for shell RC changes to take effect."
+echo "Run 'fix-docker-proxy' to clear proxy vars in this terminal."
 echo ""
 
 # Reset the lab state last, after the environment is repaired.

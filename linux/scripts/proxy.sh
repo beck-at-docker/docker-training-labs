@@ -78,28 +78,11 @@ for rc_file in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zshrc"; do
     fi
 done
 
-# Clean up environment variables in current shell (won't persist, but helpful for testing)
-unset HTTP_PROXY
-unset HTTPS_PROXY
-unset http_proxy
-unset https_proxy
-unset NO_PROXY
-unset no_proxy
-
 echo ""
 echo "Proxy configuration cleaned up"
 echo ""
-echo "IMPORTANT:"
-echo "  1. Restart Docker Desktop for daemon.json changes to take effect"
-echo "  2. Restart your terminal for shell changes to take effect"
-echo ""
-echo "To restart Docker Desktop:"
-echo "  - Right-click the Docker icon in your taskbar"
-echo "  - Select 'Restart'"
-echo ""
-echo "To apply shell changes:"
-echo "  - Close and reopen your terminal"
-echo "  - Or run: source ~/.bashrc"
+echo "Run 'fix-docker-proxy' to clear proxy vars in this terminal."
+echo "Restart Docker Desktop for daemon.json changes to take effect."
 echo ""
 
 # Test registry access

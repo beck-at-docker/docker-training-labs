@@ -89,6 +89,36 @@ chown -R "${SUDO_USER:-$USER}" "$STATE_DIR"
 echo "Training environment initialized"
 echo ""
 
+# Append a fix-docker-proxy shell function to the user's .zshrc so that
+# bogus proxy environment variables injected by break_proxy.sh can be
+# cleared in the live terminal without opening a new one. Fix scripts run
+# in a subprocess and cannot unset vars in the parent shell directly.
+#
+# The sentinel guard prevents the block from being appended more than once
+# if bootstrap is re-run.
+echo "Configuring shell helper..."
+ZSHRC="$USER_HOME/.zshrc"
+if [ -f "$ZSHRC" ] && ! grep -q "BEGIN DOCKER TRAINING LABS" "$ZSHRC"; then
+    cat >> "$ZSHRC" << 'EOF'
+
+# BEGIN DOCKER TRAINING LABS
+# Shell helper installed by docker-training-labs bootstrap.
+# Clears proxy environment variables injected by break_proxy.sh in the
+# current terminal without requiring a new terminal to be opened.
+fix-docker-proxy() {
+    unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy NO_PROXY no_proxy
+    echo "Proxy environment variables cleared for this terminal."
+}
+# END DOCKER TRAINING LABS
+EOF
+    echo "Shell helper 'fix-docker-proxy' added to $ZSHRC"
+elif [ ! -f "$ZSHRC" ]; then
+    echo "  Note: $ZSHRC not found, skipping shell helper"
+else
+    echo "  Shell helper already present in $ZSHRC"
+fi
+echo ""
+
 echo "=========================================="
 echo "Installation Complete!"
 echo "=========================================="
