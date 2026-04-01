@@ -27,9 +27,14 @@ test_fixed_state() {
             "docker run -d --name test-port-$port -p $port:80 nginx:alpine > /dev/null 2>&1 && docker rm -f test-port-$port > /dev/null"
     done
     
-    # Verify squatter containers are gone
+    # Verify squatter containers are gone. Multiple --filter name= flags on a
+    # single docker ps call are AND'd, not OR'd, so they cannot match two
+    # distinct container names simultaneously. Run two separate queries instead.
     local squatters
-    squatters=$(docker ps -a --filter "name=port-squatter" --filter "name=background-db" --format "{{.Names}}")
+    squatters=$(
+        docker ps -a --filter "name=port-squatter" --format "{{.Names}}"
+        docker ps -a --filter "name=background-db"  --format "{{.Names}}"
+    )
     log_test "All port squatter containers removed"
     if [ -z "$squatters" ]; then
         log_pass "All port squatter containers removed"

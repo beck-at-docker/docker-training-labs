@@ -46,7 +46,8 @@ test_fixed_state() {
     local conflict_nets
     conflict_nets=$(docker network ls --format '{{.Name}}' | while read net; do
         if [ "$net" != "bridge" ] && [ "$net" != "host" ] && [ "$net" != "none" ]; then
-            local subnet
+            # 'local' is only valid inside a function; this runs in a subshell
+            # so declare subnet as a plain variable instead.
             subnet=$(docker network inspect "$net" 2>/dev/null | grep -o '"Subnet": *"[^"]*"' | head -1 | cut -d'"' -f4)
             if [ "$subnet" = "$bridge_subnet" ]; then
                 echo "$net"
