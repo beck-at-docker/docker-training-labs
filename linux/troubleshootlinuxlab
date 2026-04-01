@@ -20,6 +20,7 @@
 #   lib/grading.sh   - Append rows to ~/.docker-training-labs/grades.csv
 #
 #   scenarios/break_<n>.sh  - Deliberately corrupt Docker Desktop
+#   scenarios/all.sh        - Trainer-only restore script (not for trainees)
 #   tests/test_<n>.sh       - Verify the scenario has been fixed
 #
 # Lab lifecycle
@@ -36,6 +37,12 @@
 #   Score: <n>%
 #   Tests Passed: <n>    <- written by generate_report in test_framework.sh
 #   Tests Failed: <n>    <- written by generate_report in test_framework.sh
+#
+# Scenario name convention
+# ------------------------
+#   Lab names (DNS, PORT, PROXY, SSO, BRIDGE, AUTHCONFIG, PROXYFAIL) are
+#   stored verbatim in config.json and lowercased at runtime to derive
+#   filenames: break_dns.sh / test_dns.sh, break_ports.sh / test_port.sh, etc.
 #
 # Difference from Mac/Windows versions
 # -------------------------------------
@@ -123,7 +130,16 @@ show_main_menu() {
         echo ""
         echo "4. Login Problems"
         echo ""
-        echo "5. View my report card"
+        echo "5. Broken Networking"
+        echo ""
+        echo "6. Auth Config Errors"
+        echo ""
+        echo "7. Proxy Connection Issues"
+        echo ""
+        echo "8. View my report card"
+        echo ""
+        echo "--- Trainer Tools ---"
+        echo "9. Fix All"
         echo "0. Exit"
     fi
 
@@ -133,11 +149,51 @@ show_main_menu() {
 
 # ------------------------------------------------------------------
 # show_lab_instructions - Print the brief for the named lab
+#
+# Adding a new lab requires: a break_<lower>.sh, a test_<lower>.sh,
+# a new case here, a new case in start_lab, and a menu entry in
+# show_main_menu.
 # ------------------------------------------------------------------
 show_lab_instructions() {
     local lab=$1
 
     case $lab in
+        DNS)
+            cat << 'EOF'
+Problem: docker pull fails with a DNS write error
+
+The Docker daemon cannot resolve external hostnames. Image pulls
+fail immediately with an error like:
+
+  write udp ...: write: operation not permitted
+
+Your Linux host DNS works fine. Interestingly, nslookup inside a
+container may also appear to work. The daemon and containers
+use different DNS paths - that discrepancy is your first clue.
+
+Symptoms you should observe:
+  - docker pull fails with "write: operation not permitted"
+  - Error references a DNS lookup on an internal IP (e.g. 192.168.65.x)
+  - Host machine DNS works fine
+  - docker run --rm alpine:latest nslookup google.com may succeed
+
+Diagnostic Commands to Try:
+  docker pull hello-world
+  docker info | grep -i dns
+  cat ~/.docker/daemon.json
+  docker run --rm alpine:latest nslookup google.com
+
+If config looks clean, think about what sits between the daemon
+and the network. Check whether traffic is being blocked at a
+lower level inside the Docker VM:
+
+  docker run --rm --privileged --pid=host alpine:latest \
+    nsenter -t 1 -m -u -n -i sh -c 'iptables -L OUTPUT -n -v'
+
+Restarting Docker Desktop will clear the problem as a last
+resort, but try to find and remove the root cause first.
+EOF
+            ;;
         PORT)
             cat << 'EOF'
 Problem: Containers fail to bind to common ports
@@ -227,40 +283,113 @@ Fix the proxy config so auth endpoints are reachable, then sign
 back in and run troubleshootlinuxlab --check.
 EOF
             ;;
-        DNS)
+        BRIDGE)
             cat << 'EOF'
-Problem: docker pull fails with a DNS write error
+Problem: Container networking is broken
 
-The Docker daemon cannot resolve external hostnames. Image pulls
-fail immediately with an error like:
-
-  write udp ...: write: operation not permitted
-
-Your Linux host DNS works fine. Interestingly, nslookup inside a
-container may also appear to work. The daemon and containers
-use different DNS paths - that discrepancy is your first clue.
+Your containers start successfully but have no network
+connectivity. They can't reach the internet or each other,
+even though they appear to have IP addresses.
 
 Symptoms you should observe:
-  - docker pull fails with "write: operation not permitted"
-  - Error references a DNS lookup on an internal IP (e.g. 192.168.65.x)
-  - Host machine DNS works fine
-  - docker run --rm alpine:latest nslookup google.com may succeed
+  - Containers can't ping external IPs
+  - Containers can't communicate with each other
+  - Docker daemon is running normally
+  - Network appears to exist but doesn't work
+
+Diagnostic Commands to Try:
+  docker network ls
+  docker network inspect bridge
+  docker run --rm alpine:latest ping -c 3 8.8.8.8
+  docker run --rm alpine:latest ip route
+
+The blocking rule lives inside the Docker Desktop VM, not on
+the Linux host directly. To inspect it, you need to use a
+privileged container to enter the VM's network namespace:
+
+  docker run --rm --privileged --pid=host alpine:latest \
+    nsenter -t 1 -m -u -n -i sh -c 'iptables -L FORWARD -n -v'
+
+Look for DROP rules targeting docker0. Fix it by removing the
+offending iptables rule and cleaning up the test containers.
+EOF
+            ;;
+        AUTHCONFIG)
+            cat << 'EOF'
+Problem: Docker Desktop keeps signing you out immediately
+
+After restarting Docker Desktop, you find yourself signed out.
+When you attempt to sign in via SSO, the browser auth completes
+successfully - but Docker Desktop immediately signs you out again.
+This happens every single time, with no error message explaining why.
+
+Unlike the SSO lab, the proxy configuration is clean. Something
+else in Docker Desktop's settings is causing every authenticated
+session to be rejected the moment it is established.
+
+Symptoms you should observe:
+  - Docker Desktop shows you as signed out on startup
+  - docker info shows no Username field
+  - SSO loop: browser completes but Desktop immediately logs out
+  - docker pull still works for public images (daemon is healthy)
+  - No proxy errors in Docker Desktop logs
+
+The fact that the daemon runs fine and pulls work rules out a
+proxy or network problem. The issue is in how Docker Desktop is
+configured to validate who is allowed to be signed in.
+
+Diagnostic Commands to Try:
+  docker info | grep -i username
+  docker pull alpine:latest
+  cat ~/.docker/desktop/settings.json
+
+Look for:
+  - The allowedOrgs key in settings.json
+  - Its value format: should be a plain org slug like ["my-company"]
+    not a URL like ["https://hub.docker.com/u/my-company"]
+
+Fix the allowedOrgs value, restart Docker Desktop, sign back in,
+then run troubleshootlinuxlab --check.
+EOF
+            ;;
+        PROXYFAIL)
+            cat << 'EOF'
+Problem: Docker cannot reach external registries
+
+Your Docker Desktop cannot pull images. Attempts fail immediately
+with a connection error - there is no timeout, the failure is
+instant. Container internet access is also broken.
+
+This is a proxy misconfiguration, but the error behaviour is
+different from a misconfigured proxy that simply doesn't route
+traffic. Pay attention to whether the error says "connection
+refused" or "connection timed out" - that distinction tells you
+exactly what kind of proxy problem you're dealing with.
+
+On Linux, Docker Desktop proxy config lives in:
+  ~/.docker/desktop/settings.json  (preferred)
+  ~/.docker/daemon.json            (fallback)
+
+Symptoms you should observe:
+  - docker pull fails immediately (no long wait before error)
+  - Error message includes "connection refused"
+  - Containers can't reach the internet
+  - Host machine internet access works fine
+  - No bogus proxy variables in shell environment (env | grep -i proxy)
 
 Diagnostic Commands to Try:
   docker pull hello-world
-  docker info | grep -i dns
+  docker info | grep -i proxy
+  cat ~/.docker/desktop/settings.json
   cat ~/.docker/daemon.json
-  docker run --rm alpine:latest nslookup google.com
+  env | grep -i proxy
 
-If config looks clean, think about what sits between the daemon
-and the network. Check whether traffic is being blocked at a
-lower level inside the Docker VM:
+Look for:
+  - ProxyHTTPMode set to "manual"
+  - ProxyHTTP / ProxyHTTPS pointing to a loopback address (127.0.0.1)
+    with a port that has nothing listening on it
 
-  docker run --rm --privileged --pid=host alpine:latest \
-    nsenter -t 1 -m -u -n -i sh -c 'iptables -L OUTPUT -n -v'
-
-Restarting Docker Desktop will clear the problem as a last
-resort, but try to find and remove the root cause first.
+Fix the proxy config and restart Docker Desktop to resolve!
 EOF
             ;;
     esac
@@ -268,6 +397,12 @@ EOF
 
 # ------------------------------------------------------------------
 # start_lab - Run the break script and record state
+#
+# lab_name is the canonical scenario identifier. It is stored in
+# config.json and lowercased at runtime to derive both the break
+# script and test script filenames. Adding a new lab requires: a
+# break_<lower>.sh, a test_<lower>.sh, a new case here, and menu
+# entries in show_main_menu.
 # ------------------------------------------------------------------
 start_lab() {
     local lab_number=$1
@@ -276,20 +411,32 @@ start_lab() {
 
     case $lab_number in
         1)
-            lab_name="DNS"    # -> scenarios/break_dns.sh, tests/test_dns.sh
+            lab_name="DNS"        # -> scenarios/break_dns.sh, tests/test_dns.sh
             break_script="$INSTALL_DIR/scenarios/break_dns.sh"
             ;;
         2)
-            lab_name="PORT"   # -> scenarios/break_ports.sh, tests/test_port.sh
+            lab_name="PORT"       # -> scenarios/break_ports.sh, tests/test_port.sh
             break_script="$INSTALL_DIR/scenarios/break_ports.sh"
             ;;
         3)
-            lab_name="PROXY"  # -> scenarios/break_proxy.sh, tests/test_proxy.sh
+            lab_name="PROXY"      # -> scenarios/break_proxy.sh, tests/test_proxy.sh
             break_script="$INSTALL_DIR/scenarios/break_proxy.sh"
             ;;
         4)
-            lab_name="SSO"    # -> scenarios/break_sso.sh, tests/test_sso.sh
+            lab_name="SSO"        # -> scenarios/break_sso.sh, tests/test_sso.sh
             break_script="$INSTALL_DIR/scenarios/break_sso.sh"
+            ;;
+        5)
+            lab_name="BRIDGE"     # -> scenarios/break_bridge.sh, tests/test_bridge.sh
+            break_script="$INSTALL_DIR/scenarios/break_bridge.sh"
+            ;;
+        6)
+            lab_name="AUTHCONFIG" # -> scenarios/break_authconfig.sh, tests/test_authconfig.sh
+            break_script="$INSTALL_DIR/scenarios/break_authconfig.sh"
+            ;;
+        7)
+            lab_name="PROXYFAIL"  # -> scenarios/break_proxyfail.sh, tests/test_proxyfail.sh
+            break_script="$INSTALL_DIR/scenarios/break_proxyfail.sh"
             ;;
         *)
             echo -e "${RED}Invalid lab selection${NC}"
@@ -345,6 +492,17 @@ start_lab() {
 
 # ------------------------------------------------------------------
 # check_lab - Run the test script and record a grade
+#
+# The test script is run in a subshell and all its stdout is captured
+# to a temp file. check_lab then:
+#   1. Parses the structured footer lines (Score/Tests Passed/Tests Failed)
+#   2. Displays the full test output to the trainee
+#   3. Copies the output to REPORTS_DIR as a permanent record
+#   4. Appends a grade row to grades.csv via record_grade
+#   5. Clears the active scenario from config.json
+#   6. Asks whether the trainee wants to try another lab
+#      - Yes: returns normally so main()'s while loop redraws the menu
+#      - No:  exits the process
 # ------------------------------------------------------------------
 check_lab() {
     local current_scenario
@@ -365,6 +523,9 @@ check_lab() {
     local scenario_lower
     scenario_lower=$(echo "$current_scenario" | tr '[:upper:]' '[:lower:]')
     local test_script="$INSTALL_DIR/tests/test_${scenario_lower}.sh"
+
+    # Capture all test output to a temp file so we can both display it and
+    # parse the structured footer lines without running the script twice.
     local test_output
     test_output=$(mktemp)
 
@@ -375,7 +536,14 @@ check_lab() {
         exit 1
     fi
 
-    # Extract structured values written by the test script
+    # Parse structured output written by the test script. Each test script must
+    # write these three lines to stdout (see footer of each tests/test_*.sh):
+    #   Score: <n>%
+    #   Tests Passed: <n>
+    #   Tests Failed: <n>
+    # The ^ anchor ensures we only match lines that start with the field name,
+    # preventing false matches from other output that contains these substrings.
+    # Defaults to 0 for any field that is missing or unparseable.
     local score
     score=$(grep "^Score:" "$test_output" | grep -o '[0-9]\+' | head -1)
     score=${score:-0}
@@ -450,8 +618,8 @@ check_lab() {
     # or return to the caller's loop, both of which are fine.
     rm -f "$test_output"
 
-    # "Yes" returns to the caller so the interactive menu loop in main()
-    # redraws naturally - no recursion needed. "No" exits.
+    # Offer to continue. "Yes" returns to the caller so the interactive menu
+    # loop in main() redraws naturally - no recursion needed. "No" exits.
     echo -e "${BLUE}==========================================${NC}"
     echo ""
     read -p "Would you like to try another lab? (y/N): " continue_training
@@ -552,6 +720,11 @@ show_status() {
 
 # ------------------------------------------------------------------
 # show_report_card
+#
+# Displays the last recorded score for each scenario. If a trainee
+# completed the same lab more than once, only their most recent
+# attempt is shown, but the overall average reflects those last scores
+# only (one entry per scenario). This matches the Mac implementation.
 # ------------------------------------------------------------------
 show_report_card() {
     show_banner
@@ -569,16 +742,18 @@ show_report_card() {
         return
     fi
 
-    local total_score=0
-    local lab_count=0
     local dns_score=""
     local port_score=""
     local proxy_score=""
     local sso_score=""
+    local bridge_score=""
+    local authconfig_score=""
+    local proxyfail_score=""
 
     # Each scenario variable is overwritten on every matching row, so if a
     # trainee attempted the same lab multiple times only the last score is
-    # shown. All attempts count toward the overall average.
+    # shown. The average is computed from these same last-score-per-scenario
+    # values after the loop so it stays consistent with what is displayed.
     while IFS=',' read -r trainee scenario score timestamp duration; do
         # Skip header row and rows belonging to other trainees
         if [ "$trainee" = "trainee_id" ] || [ "$trainee" != "$USER" ]; then
@@ -586,22 +761,37 @@ show_report_card() {
         fi
 
         case "$scenario" in
-            DNS)   dns_score="${score}%"   ;;
-            PORT)  port_score="${score}%"  ;;
-            PROXY) proxy_score="${score}%" ;;
-            SSO)   sso_score="${score}%"   ;;
+            DNS)        dns_score="${score}%"        ;;
+            PORT)       port_score="${score}%"       ;;
+            PROXY)      proxy_score="${score}%"      ;;
+            SSO)        sso_score="${score}%"        ;;
+            BRIDGE)     bridge_score="${score}%"     ;;
+            AUTHCONFIG) authconfig_score="${score}%" ;;
+            PROXYFAIL)  proxyfail_score="${score}%"  ;;
         esac
-
-        total_score=$((total_score + score))
-        lab_count=$((lab_count + 1))
     done < "$GRADES_FILE"
 
     echo "Lab Scores:"
-    echo "  DNS Resolution:  ${dns_score:-Not attempted}"
-    echo "  Port Problems:   ${port_score:-Not attempted}"
-    echo "  Pull Problems:   ${proxy_score:-Not attempted}"
-    echo "  Login Problems:  ${sso_score:-Not attempted}"
+    echo "  DNS Resolution:      ${dns_score:-Not attempted}"
+    echo "  Port Problems:       ${port_score:-Not attempted}"
+    echo "  Pull Problems:       ${proxy_score:-Not attempted}"
+    echo "  Login Problems:      ${sso_score:-Not attempted}"
+    echo "  Broken Networking:   ${bridge_score:-Not attempted}"
+    echo "  Auth Config Errors:  ${authconfig_score:-Not attempted}"
+    echo "  Proxy Conn Issues:   ${proxyfail_score:-Not attempted}"
     echo ""
+
+    # Sum the last score for each attempted scenario. ${s%\%} strips the
+    # trailing '%' that was appended in the case statement above.
+    local total_score=0
+    local lab_count=0
+    local s
+    for s in "$dns_score" "$port_score" "$proxy_score" "$sso_score" \
+              "$bridge_score" "$authconfig_score" "$proxyfail_score"; do
+        [ -n "$s" ] || continue
+        total_score=$((total_score + ${s%\%}))
+        lab_count=$((lab_count + 1))
+    done
 
     if [ "$lab_count" -gt 0 ]; then
         local avg_score
@@ -629,6 +819,18 @@ show_report_card() {
     echo ""
     echo -e "${BLUE}==========================================${NC}"
     echo ""
+}
+
+# ------------------------------------------------------------------
+# run_fix_all - Trainer utility: run all fix scripts with a single restart
+# ------------------------------------------------------------------
+run_fix_all() {
+    show_banner
+    echo -e "${YELLOW}Fix All - Trainer Mode${NC}"
+    echo ""
+    bash "$INSTALL_DIR/scenarios/all.sh"
+    echo ""
+    read -p "Press enter to continue..."
 }
 
 # ------------------------------------------------------------------
@@ -685,6 +887,13 @@ reset_lab() {
 
 # ------------------------------------------------------------------
 # main
+#
+# The menu has two distinct states:
+#   Active lab:   options to continue, submit, abandon, or view report
+#   No active lab: options to start a lab or view report
+# get_current_scenario is called once per loop iteration rather than
+# once at startup so it picks up state changes made by check_lab and
+# abandon_lab.
 # ------------------------------------------------------------------
 main() {
     case "${1:-}" in
@@ -764,13 +973,16 @@ main() {
         else
             # No active lab menu
             case $choice in
-                [1-4])
+                [1-7])
                     start_lab $choice
                     exit 0
                     ;;
-                5)
+                8)
                     show_report_card
                     read -p "Press enter to continue..."
+                    ;;
+                9)
+                    run_fix_all
                     ;;
                 0)
                     echo "Goodbye!"
