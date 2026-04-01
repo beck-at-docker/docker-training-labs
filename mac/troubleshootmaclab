@@ -11,8 +11,8 @@
 #   lib/grading.sh   - Append rows to ~/.docker-training-labs/grades.csv
 #
 #   scenarios/break_<n>.sh  - Deliberately corrupt Docker Desktop
+#   scenarios/all.sh        - Trainer-only restore script (not for trainees)
 #   tests/test_<n>.sh       - Verify the scenario has been fixed
-#   fixes/fix_<n>.sh        - Dev-only restore scripts (not for trainees)
 #
 # Lab lifecycle
 # -------------
@@ -486,11 +486,13 @@ check_lab() {
     
     # tr '[:upper:]' '[:lower:]' is used instead of ${var,,} for Bash 3 compatibility.
     # The lowercased name maps directly to the test script filename.
-    local scenario_lower=$(echo "$current_scenario" | tr '[:upper:]' '[:lower:]')
+    local scenario_lower
+    scenario_lower=$(echo "$current_scenario" | tr '[:upper:]' '[:lower:]')
     local test_script="$INSTALL_DIR/tests/test_${scenario_lower}.sh"
     # Capture all test output to a temp file so we can both display it and
     # parse the structured footer lines without running the script twice.
-    local test_output=$(mktemp)
+    local test_output
+    test_output=$(mktemp)
 
     if ! bash "$test_script" > "$test_output" 2>&1; then
         echo -e "${RED}Test script failed to run${NC}"
@@ -696,14 +698,15 @@ show_report_card() {
     local proxy_score=""
     local authconfig_score=""
     local proxyfail_score=""
-    
+
     # Each scenario variable is overwritten on every matching row, so if a
     # trainee attempted the same lab multiple times only the last score is
-    # shown. All attempts count toward the overall average.
+    # shown. The average is computed from these same last-score-per-scenario
+    # values after the loop so it stays consistent with what is displayed.
     while IFS=',' read -r trainee scenario score timestamp duration; do
         if [ "$trainee" = "trainee_id" ]; then continue; fi
         if [ "$trainee" != "$USER" ]; then continue; fi
-        
+
         case "$scenario" in
             DNS)        dns_score="$score%" ;;
             PORT)       port_score="$score%" ;;
@@ -713,11 +716,18 @@ show_report_card() {
             AUTHCONFIG) authconfig_score="$score%" ;;
             PROXYFAIL)  proxyfail_score="$score%" ;;
         esac
-        
-        total_score=$((total_score + score))
-        lab_count=$((lab_count + 1))
     done < "$GRADES_FILE"
-    
+
+    # Sum the last score for each attempted scenario. ${s%\%} strips the
+    # trailing '%' that was appended in the case statement above.
+    local s
+    for s in "$dns_score" "$port_score" "$sso_score" "$bridge_score" \
+              "$proxy_score" "$authconfig_score" "$proxyfail_score"; do
+        [ -n "$s" ] || continue
+        total_score=$((total_score + ${s%\%}))
+        lab_count=$((lab_count + 1))
+    done
+
     echo "Lab Scores:"
     echo "  DNS Resolution:      ${dns_score:-Not attempted}"
     echo "  Port Problems:       ${port_score:-Not attempted}"
@@ -727,9 +737,10 @@ show_report_card() {
     echo "  Auth Config Errors:  ${authconfig_score:-Not attempted}"
     echo "  Proxy Conn Issues:   ${proxyfail_score:-Not attempted}"
     echo ""
-    
+
     if [ $lab_count -gt 0 ]; then
-        local avg_score=$((total_score / lab_count))
+        local avg_score
+        avg_score=$((total_score / lab_count))
         echo "Overall Average: $avg_score%"
         echo ""
         
@@ -804,8 +815,13 @@ reset_lab() {
     
     if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
         # Re-run the break script (Bash 3 compatible lowercase conversion)
-        local current_lower=$(echo "$current" | tr '[:upper:]' '[:lower:]')
+        local current_lower
+        current_lower=$(echo "$current" | tr '[:upper:]' '[:lower:]')
         local break_script="$INSTALL_DIR/scenarios/break_${current_lower}.sh"
+        if [ ! -f "$break_script" ]; then
+            echo -e "${RED}Error: break script not found: $break_script${NC}"
+            return 1
+        fi
         bash "$break_script"
         
         # Reset the timer

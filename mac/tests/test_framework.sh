@@ -64,9 +64,11 @@ log_info() {
 # $3 - Expected exit code: 0 (default) means expect success;
 #      any non-zero value means expect failure (tests a broken state)
 #
-# eval is used so $2 can be a compound command (pipes, &&, etc.) rather
-# than a single executable. Output is captured to suppress noise; the
-# first three lines are shown on failure for quick diagnosis.
+# eval is used intentionally so $2 can be a compound command (pipes,
+# &&, subshells, etc.) rather than a single executable. All callers
+# pass hardcoded command strings, so there is no injection risk here.
+# Output is captured to suppress noise; the first three lines are shown
+# on failure for quick diagnosis.
 run_test() {
     local test_name="$1"
     local test_command="$2"
@@ -111,7 +113,8 @@ run_test() {
 # output contract parsed by check_lab(). Do not change their format.
 generate_report() {
     local scenario=$1
-    local timestamp=$(date +%Y%m%d_%H%M%S)
+    local timestamp
+    timestamp=$(date +%Y%m%d_%H%M%S)
     local report_file="$TEST_RESULTS_DIR/${scenario}_${timestamp}.txt"
     
     {

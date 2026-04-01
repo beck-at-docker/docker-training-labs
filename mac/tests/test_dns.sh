@@ -43,6 +43,10 @@ test_fixed_state() {
     # restarted Docker Desktop (which also clears the rules but wipes the VM).
     # After a restart both paths look identical here, so a restart will also
     # pass - the distinction is explained in the lab brief.
+    #
+    # run_test is not used here because the check needs to capture the rule
+    # count and branch on its value, which run_test's pass/fail model does
+    # not support. log_test / log_pass / log_fail are called directly instead.
     log_test "iptables DROP rules for port 53 have been removed"
     local remaining_rules
     remaining_rules=$(docker run --rm --privileged --pid=host alpine:latest \

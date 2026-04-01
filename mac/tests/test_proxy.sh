@@ -48,14 +48,22 @@ sys.exit(1 if bad else 0)
         log_pass "settings-store.json not present (not applicable)"
     fi
 
-    # Check environment variables are not set to the broken values
-    log_test "Environment proxy variables are valid"
-    if echo "${HTTP_PROXY}${HTTPS_PROXY}" | grep -q "192\.0\.2\|invalid"; then
-        log_fail "Still has invalid proxy in environment variables"
-    elif [ -n "$HTTP_PROXY" ]; then
-        log_pass "Has valid proxy in environment (corporate network)"
+    # Check that the shell RC file no longer contains the lab-injected proxy
+    # block. Checking the current environment is not reliable here because
+    # the test runs in a subshell that inherited its environment before any
+    # RC changes took effect. Grepping the file directly tests whether the
+    # trainee actually removed the injected block.
+    log_test "Shell RC file proxy injection has been removed"
+    local rc_file=""
+    for f in "$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.bashrc"; do
+        [ -f "$f" ] && rc_file="$f" && break
+    done
+    if [ -z "$rc_file" ]; then
+        log_pass "No shell RC file found (nothing to check)"
+    elif grep -q "DOCKER TRAINING LAB PROXY BREAK" "$rc_file"; then
+        log_fail "Shell RC file still contains the lab proxy injection ($rc_file)"
     else
-        log_pass "No proxy environment variables (direct internet)"
+        log_pass "Shell RC file has no lab proxy injection"
     fi
 
     # Stability check
