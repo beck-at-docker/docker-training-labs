@@ -12,6 +12,14 @@
 
 set -e
 
+# When called with --no-restart, skip the Docker Desktop restart cycle.
+# all.sh uses this flag so it can perform a single consolidated restart
+# after all fix scripts have made their settings-store.json changes.
+NO_RESTART=0
+if [ "${1:-}" = "--no-restart" ]; then
+    NO_RESTART=1
+fi
+
 SETTINGS_STORE="$HOME/Library/Group Containers/group.com.docker/settings-store.json"
 
 # Reset the training lab state file so the CLI sees no active scenario.
@@ -95,45 +103,50 @@ for rc_file in "$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.bashrc"; do
     fi
 done
 
-# ------------------------------------------------------------------
-# Restart Docker Desktop to apply the restored settings
-# ------------------------------------------------------------------
-echo ""
-echo "Restarting Docker Desktop to apply restored settings..."
-
-osascript -e 'quit app "Docker Desktop"' 2>/dev/null || true
-
-for i in $(seq 1 15); do
-    if ! pgrep -x "Docker Desktop" > /dev/null 2>&1; then
-        break
-    fi
-    sleep 1
-done
-
-open /Applications/Docker.app
-
-echo "  Waiting for Docker Desktop to restart..."
-DOCKER_READY=0
-for i in $(seq 1 30); do
-    if docker info &>/dev/null 2>&1; then
-        DOCKER_READY=1
-        break
-    fi
-    sleep 2
-done
-
-if [ "$DOCKER_READY" -eq 0 ]; then
-    echo "  Warning: Docker Desktop did not come back within 60s"
-else
-    # Verify registry access is restored
+if [ "$NO_RESTART" -eq 0 ]; then
+    # ------------------------------------------------------------------
+    # Restart Docker Desktop to apply the restored settings
+    # ------------------------------------------------------------------
     echo ""
-    echo "Verifying registry access..."
-    if docker pull hello-world > /dev/null 2>&1; then
-        echo "  Registry access working"
-        docker rmi hello-world > /dev/null 2>&1 || true
+    echo "Restarting Docker Desktop to apply restored settings..."
+
+    osascript -e 'quit app "Docker Desktop"' 2>/dev/null || true
+
+    for i in $(seq 1 15); do
+        if ! pgrep -x "Docker Desktop" > /dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+    done
+
+    open /Applications/Docker.app
+
+    echo "  Waiting for Docker Desktop to restart..."
+    DOCKER_READY=0
+    for i in $(seq 1 30); do
+        if docker info &>/dev/null 2>&1; then
+            DOCKER_READY=1
+            break
+        fi
+        sleep 2
+    done
+
+    if [ "$DOCKER_READY" -eq 0 ]; then
+        echo "  Warning: Docker Desktop did not come back within 60s"
     else
-        echo "  Registry access not working - check Docker Desktop status"
+        # Verify registry access is restored
+        echo ""
+        echo "Verifying registry access..."
+        if docker pull hello-world > /dev/null 2>&1; then
+            echo "  Registry access working"
+            docker rmi hello-world > /dev/null 2>&1 || true
+        else
+            echo "  Registry access not working - check Docker Desktop status"
+        fi
     fi
+else
+    echo ""
+    echo "Skipping Docker Desktop restart (will be restarted by caller)."
 fi
 
 echo ""

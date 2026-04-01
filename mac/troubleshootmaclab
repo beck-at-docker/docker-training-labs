@@ -116,6 +116,9 @@ show_main_menu() {
         echo "7. Proxy Connection Issues"
         echo ""
         echo "8. View my report card"
+        echo ""
+        echo "--- Trainer Tools ---"
+        echo "9. Fix All"
         echo "0. Exit"
     fi
     
@@ -752,6 +755,16 @@ show_report_card() {
     echo ""
 }
 
+# run_fix_all - Trainer utility: run all fix scripts with a single restart
+run_fix_all() {
+    show_banner
+    echo -e "${YELLOW}Fix All - Trainer Mode${NC}"
+    echo ""
+    bash "$INSTALL_DIR/scripts/all.sh"
+    echo ""
+    read -p "Press enter to continue..."
+}
+
 # Abandon current lab
 # Returns 0 on successful abandon, 1 if there is no active lab or the user
 # cancels the confirmation prompt.
@@ -896,6 +909,9 @@ main() {
                 8)
                     show_report_card
                     read -p "Press enter to continue..."
+                    ;;
+                9)
+                    run_fix_all
                     ;;
                 0)
                     echo "Goodbye!"
