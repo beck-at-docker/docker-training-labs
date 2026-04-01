@@ -760,7 +760,7 @@ run_fix_all() {
     show_banner
     echo -e "${YELLOW}Fix All - Trainer Mode${NC}"
     echo ""
-    bash "$INSTALL_DIR/scripts/all.sh"
+    bash "$INSTALL_DIR/scenarios/all.sh"
     echo ""
     read -p "Press enter to continue..."
 }
