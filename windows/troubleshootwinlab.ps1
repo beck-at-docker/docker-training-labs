@@ -73,7 +73,7 @@ function Show-MainMenu {
         Write-Host ""
         Write-Host "1. Continue working on current lab"
         Write-Host "2. Submit current lab for grading"
-        Write-Host "3. Abandon current lab and start new"
+        Write-Host "3. Abandon current lab and start new (requires manual Docker Desktop restart)"
         Write-Host "4. View my report card"
         Write-Host "0. Exit"
     } else {

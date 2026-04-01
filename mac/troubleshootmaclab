@@ -95,7 +95,7 @@ show_main_menu() {
         echo ""
         echo "1. Continue working on current lab"
         echo "2. Submit current lab for grading"
-        echo "3. Abandon current lab and start new"
+        echo "3. Abandon current lab and start new (requires manual Docker Desktop restart)"
         echo "4. View my report card"
         echo "0. Exit"
     else
