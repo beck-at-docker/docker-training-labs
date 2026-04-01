@@ -1,8 +1,6 @@
 # all.ps1 - Restore all Docker Desktop systems
 # FOR DEVELOPMENT/TESTING ONLY - Not for trainees
 
-$ErrorActionPreference = "Stop"
-
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 Write-Host "=========================================="
@@ -26,69 +24,74 @@ if ($confirm -notmatch "^[yY]$") {
 
 Write-Host ""
 Write-Host "=========================================="
-Write-Host ""
+
+# Tracks which steps failed so we can report clearly at the end.
+$failedSteps = @()
+
+# Invoke-Fix runs the given fix script and records pass/fail. Never exits early.
+function Invoke-Fix {
+    param(
+        [string]$Label,
+        [string]$Script
+    )
+
+    Write-Host ""
+    Write-Host "--- $Label ---"
+    try {
+        & "$SCRIPT_DIR\$Script"
+        if ($LASTEXITCODE -ne 0) {
+            throw "Exit code $LASTEXITCODE"
+        }
+        Write-Host "  -> OK"
+    }
+    catch {
+        Write-Host "  -> FAILED: $_"
+        $script:failedSteps += $Label
+    }
+    Write-Host ""
+    Write-Host "=========================================="
+}
+
 # Fix bridge first (iptables rules affect all container networking),
 # then DNS, then proxy variants, then SSO and authconfig
 # (settings-store.json changes), ports last.
-Write-Host "[1/7] Fixing Bridge Network..."
-& "$SCRIPT_DIR\bridge.ps1"
-if ($LASTEXITCODE -ne 0) { throw "bridge.ps1 failed with exit code $LASTEXITCODE" }
+Invoke-Fix "[1/7] Bridge Network"           "bridge.ps1"
+Invoke-Fix "[2/7] DNS Resolution"           "dns.ps1"
+Invoke-Fix "[3/7] Proxy Configuration"      "proxy.ps1"
+Invoke-Fix "[4/7] Proxy Failure Simulation" "proxyfail.ps1"
+Invoke-Fix "[5/7] SSO Configuration"        "sso.ps1"
+Invoke-Fix "[6/7] Auth Config Enforcement"  "authconfig.ps1"
+Invoke-Fix "[7/7] Port Conflicts"           "ports.ps1"
 
 Write-Host ""
 Write-Host "=========================================="
-Write-Host ""
-Write-Host "[2/7] Fixing DNS Resolution..."
-& "$SCRIPT_DIR\dns.ps1"
-if ($LASTEXITCODE -ne 0) { throw "dns.ps1 failed with exit code $LASTEXITCODE" }
 
-Write-Host ""
-Write-Host "=========================================="
-Write-Host ""
-Write-Host "[3/7] Fixing Proxy Configuration..."
-& "$SCRIPT_DIR\proxy.ps1"
-if ($LASTEXITCODE -ne 0) { throw "proxy.ps1 failed with exit code $LASTEXITCODE" }
-
-Write-Host ""
-Write-Host "=========================================="
-Write-Host ""
-Write-Host "[4/7] Fixing Proxy Failure Simulation..."
-& "$SCRIPT_DIR\proxyfail.ps1"
-if ($LASTEXITCODE -ne 0) { throw "proxyfail.ps1 failed with exit code $LASTEXITCODE" }
-
-Write-Host ""
-Write-Host "=========================================="
-Write-Host ""
-Write-Host "[5/7] Fixing SSO Configuration..."
-& "$SCRIPT_DIR\sso.ps1"
-if ($LASTEXITCODE -ne 0) { throw "sso.ps1 failed with exit code $LASTEXITCODE" }
-
-Write-Host ""
-Write-Host "=========================================="
-Write-Host ""
-Write-Host "[6/7] Fixing Auth Config Enforcement..."
-& "$SCRIPT_DIR\authconfig.ps1"
-if ($LASTEXITCODE -ne 0) { throw "authconfig.ps1 failed with exit code $LASTEXITCODE" }
-
-Write-Host ""
-Write-Host "=========================================="
-Write-Host ""
-Write-Host "[7/7] Fixing Port Conflicts..."
-& "$SCRIPT_DIR\ports.ps1"
-if ($LASTEXITCODE -ne 0) { throw "ports.ps1 failed with exit code $LASTEXITCODE" }
-
-Write-Host ""
-Write-Host "=========================================="
-Write-Host "All Systems Restored"
-Write-Host "=========================================="
-Write-Host ""
-Write-Host "IMPORTANT: Restart Docker Desktop for all changes to take effect!"
-Write-Host ""
-Write-Host "To restart Docker Desktop:"
-Write-Host "  1. Right-click the Docker icon in your taskbar"
-Write-Host "  2. Select 'Restart'"
-Write-Host "  3. Wait for Docker Desktop to fully restart"
-Write-Host ""
-Write-Host "After Docker restarts, verify everything works:"
-Write-Host "  docker run --rm alpine:latest ping -c 2 google.com"
-Write-Host "  docker pull hello-world"
-Write-Host ""
+if ($failedSteps.Count -eq 0) {
+    Write-Host "All Systems Restored"
+    Write-Host "=========================================="
+    Write-Host ""
+    Write-Host "IMPORTANT: Restart Docker Desktop for all changes to take effect!"
+    Write-Host ""
+    Write-Host "To restart Docker Desktop:"
+    Write-Host "  1. Right-click the Docker icon in your taskbar"
+    Write-Host "  2. Select 'Restart'"
+    Write-Host "  3. Wait for Docker Desktop to fully restart"
+    Write-Host ""
+    Write-Host "After Docker restarts, verify everything works:"
+    Write-Host "  docker run --rm alpine:latest ping -c 2 google.com"
+    Write-Host "  docker pull hello-world"
+    Write-Host ""
+    exit 0
+} else {
+    Write-Host "Restore completed with errors"
+    Write-Host "=========================================="
+    Write-Host ""
+    Write-Host "The following steps failed:"
+    foreach ($step in $failedSteps) {
+        Write-Host "  - $step"
+    }
+    Write-Host ""
+    Write-Host "Review the output above for details on each failure."
+    Write-Host ""
+    exit 1
+}
