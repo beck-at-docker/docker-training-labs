@@ -168,16 +168,29 @@ if [ "$DOCKER_READY" -eq 0 ]; then
 else
     echo "  Daemon is up, waiting for proxy settings to take effect..."
     PROXY_ACTIVE=0
-    for i in $(seq 1 15); do
+    for i in $(seq 1 30); do
+        # Primary check: docker info should report the bogus proxy address.
+        # This is fast and sufficient when Docker Desktop has applied settings.
         if docker info 2>/dev/null | grep -q "192.0.2.1"; then
             PROXY_ACTIVE=1
             break
         fi
+
+        # Secondary check: attempt a pull and verify it fails with the bogus
+        # proxy address in the error. This catches cases where the proxy is
+        # actively blocking traffic but hasn't surfaced in docker info yet
+        # (e.g. settings applied but daemon info endpoint lags behind).
+        PULL_ERR=$(docker pull hello-world:latest 2>&1 || true)
+        if echo "$PULL_ERR" | grep -q "192.0.2.1"; then
+            PROXY_ACTIVE=1
+            break
+        fi
+
         sleep 2
     done
 
     if [ "$PROXY_ACTIVE" -eq 0 ]; then
-        echo "  Warning: Proxy settings did not appear in docker info within 30s"
+        echo "  Warning: Proxy settings did not appear in docker info or pull output within 60s"
         echo "  You may need to wait a moment before the break is fully active"
     fi
 fi
