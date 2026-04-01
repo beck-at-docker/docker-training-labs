@@ -334,37 +334,60 @@ Write-Host "=========================================="
 # Tracks which steps failed so we can report clearly at the end.
 $failedSteps = @()
 
-# Fix bridge first (iptables rules affect all container networking),
-# then DNS, then settings-store.json scenarios together (proxy, proxyfail,
-# sso, authconfig) before a single Docker Desktop restart, ports last.
-Invoke-Section "[1/7] Bridge Network"           { Fix-Bridge }
-Invoke-Section "[2/7] DNS Resolution"           { Fix-Dns }
-Invoke-Section "[3/7] Proxy Configuration"      { Fix-Proxy }
-Invoke-Section "[4/7] Proxy Failure Simulation" { Fix-ProxyFail }
-Invoke-Section "[5/7] SSO Configuration"        { Fix-Sso }
-Invoke-Section "[6/7] Auth Config Enforcement"  { Fix-AuthConfig }
-Invoke-Section "[7/7] Port Conflicts"           { Fix-Ports }
+# ------------------------------------------------------------------
+# Phase 1: fixes that require Docker to be running.
+#
+# Bridge and DNS inject iptables rules inside the VM via nsenter, which
+# requires a running daemon. Port cleanup uses docker rm. All three must
+# run before Docker Desktop is stopped.
+# ------------------------------------------------------------------
+Invoke-Section "[1/7] Bridge Network" { Fix-Bridge }
+Invoke-Section "[2/7] DNS Resolution" { Fix-Dns }
+Invoke-Section "[7/7] Port Conflicts" { Fix-Ports }
 
 # ------------------------------------------------------------------
-# Consolidated Docker Desktop restart
+# Stop Docker Desktop BEFORE writing to settings-store.json.
+#
+# Docker flushes its in-memory configuration back to settings-store.json
+# on a clean shutdown. Writing fixes while Docker is running and then
+# stopping it gracefully would cause that flush to overwrite the changes.
+# Stopping the process first eliminates that race entirely.
 # ------------------------------------------------------------------
-# proxy, proxyfail, sso, and authconfig all write to settings-store.json.
-# Restart Docker Desktop once here to apply all accumulated changes.
 Write-Host ""
-Write-Host "--- Restarting Docker Desktop ---"
+Write-Host "--- Stopping Docker Desktop ---"
 Write-Host ""
 
 $dockerProcess = Get-Process "Docker Desktop" -ErrorAction SilentlyContinue
 if ($dockerProcess) {
     $dockerProcess | Stop-Process -Force
-    Start-Sleep -Seconds 2
+    $waited = 0
+    while ((Get-Process "Docker Desktop" -ErrorAction SilentlyContinue) -and $waited -lt 15) {
+        Start-Sleep -Seconds 1
+        $waited++
+    }
 }
 
-$waited = 0
-while ((Get-Process "Docker Desktop" -ErrorAction SilentlyContinue) -and $waited -lt 15) {
-    Start-Sleep -Seconds 1
-    $waited++
-}
+Write-Host "  Docker Desktop stopped"
+Write-Host ""
+Write-Host "=========================================="
+
+# ------------------------------------------------------------------
+# Phase 2: fixes that write to settings-store.json.
+#
+# Docker Desktop is stopped so these writes are safe - there is no
+# running process to flush in-memory state back over the changes.
+# ------------------------------------------------------------------
+Invoke-Section "[3/7] Proxy Configuration"      { Fix-Proxy }
+Invoke-Section "[4/7] Proxy Failure Simulation" { Fix-ProxyFail }
+Invoke-Section "[5/7] SSO Configuration"        { Fix-Sso }
+Invoke-Section "[6/7] Auth Config Enforcement"  { Fix-AuthConfig }
+
+# ------------------------------------------------------------------
+# Relaunch Docker Desktop with the corrected settings.
+# ------------------------------------------------------------------
+Write-Host ""
+Write-Host "--- Restarting Docker Desktop ---"
+Write-Host ""
 
 if (Test-Path $dockerExe) {
     Start-Process $dockerExe
@@ -373,7 +396,6 @@ if (Test-Path $dockerExe) {
     $failedSteps += "Docker Desktop restart"
 }
 
-Write-Host "Docker Desktop must be started manually..."
 Write-Host "Waiting for Docker Desktop to restart..."
 $dockerReady = $false
 for ($i = 0; $i -lt 60; $i++) {

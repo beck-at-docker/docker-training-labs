@@ -325,24 +325,27 @@ echo "=========================================="
 # Tracks which steps failed so we can report clearly at the end.
 failed_steps=()
 
-# Fix bridge first (iptables rules affect all container networking),
-# then DNS, then settings-store.json scenarios together (proxy, proxyfail,
-# sso, authconfig) before a single Docker Desktop restart, ports last.
-run_section "[1/7] Bridge Network"           fix_bridge
-run_section "[2/7] DNS Resolution"           fix_dns
-run_section "[3/7] Proxy Configuration"      fix_proxy
-run_section "[4/7] Proxy Failure Simulation" fix_proxyfail
-run_section "[5/7] SSO Configuration"        fix_sso
-run_section "[6/7] Auth Config Enforcement"  fix_authconfig
-run_section "[7/7] Port Conflicts"           fix_ports
+# ------------------------------------------------------------------
+# Phase 1: fixes that require Docker to be running.
+#
+# Bridge and DNS inject iptables rules inside the VM via nsenter, which
+# requires a running daemon. Port cleanup uses docker rm. All three must
+# run before Docker Desktop is stopped.
+# ------------------------------------------------------------------
+run_section "[1/7] Bridge Network" fix_bridge
+run_section "[2/7] DNS Resolution" fix_dns
+run_section "[7/7] Port Conflicts" fix_ports
 
 # ------------------------------------------------------------------
-# Consolidated Docker Desktop restart
+# Stop Docker Desktop BEFORE writing to settings-store.json.
+#
+# Docker flushes its in-memory configuration back to settings-store.json
+# on a clean shutdown. Writing fixes while Docker is running and then
+# quitting gracefully would cause that flush to overwrite the changes.
+# Stopping the process first eliminates that race entirely.
 # ------------------------------------------------------------------
-# proxy, proxyfail, sso, and authconfig all write to settings-store.json.
-# Restart Docker Desktop once here to apply all accumulated changes.
 echo ""
-echo "--- Restarting Docker Desktop ---"
+echo "--- Stopping Docker Desktop ---"
 echo ""
 
 osascript -e 'quit app "Docker Desktop"' 2>/dev/null || true
@@ -354,9 +357,38 @@ for i in $(seq 1 15); do
     sleep 1
 done
 
+# Force kill if graceful quit did not complete in time. A broken proxy,
+# bridge, or other degraded state can cause shutdown to hang indefinitely.
+if pgrep -x "Docker Desktop" > /dev/null 2>&1; then
+    echo "  Force killing Docker Desktop (graceful quit timed out)..."
+    killall -9 "Docker Desktop" 2>/dev/null || true
+    sleep 2
+fi
+
+echo "  Docker Desktop stopped"
+echo ""
+echo "=========================================="
+
+# ------------------------------------------------------------------
+# Phase 2: fixes that write to settings-store.json.
+#
+# Docker Desktop is stopped so these writes are safe - there is no
+# running process to flush in-memory state back over the changes.
+# ------------------------------------------------------------------
+run_section "[3/7] Proxy Configuration"      fix_proxy
+run_section "[4/7] Proxy Failure Simulation" fix_proxyfail
+run_section "[5/7] SSO Configuration"        fix_sso
+run_section "[6/7] Auth Config Enforcement"  fix_authconfig
+
+# ------------------------------------------------------------------
+# Relaunch Docker Desktop with the corrected settings.
+# ------------------------------------------------------------------
+echo ""
+echo "--- Restarting Docker Desktop ---"
+echo ""
+
 open /Applications/Docker.app
 
-echo "Docker Desktop must be started manually..."
 echo "Waiting for Docker Desktop to restart..."
 DOCKER_READY=0
 for i in $(seq 1 60); do
