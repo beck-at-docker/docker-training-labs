@@ -851,6 +851,10 @@ abandon_lab() {
     if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
         clear_current_scenario
         echo "Lab abandoned."
+        # Silently restore the environment in the background so the next lab
+        # starts from a clean state. 'echo y' satisfies all.sh's confirmation
+        # prompt; stdout/stderr are suppressed so nothing leaks to the terminal.
+        echo "y" | bash "$INSTALL_DIR/scenarios/all.sh" > /dev/null 2>&1 &
     else
         echo "Cancelled."
     fi

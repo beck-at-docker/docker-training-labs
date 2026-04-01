@@ -373,6 +373,7 @@ if (Test-Path $dockerExe) {
     $failedSteps += "Docker Desktop restart"
 }
 
+Write-Host "Docker Desktop must be started manually..."
 Write-Host "Waiting for Docker Desktop to restart..."
 $dockerReady = $false
 for ($i = 0; $i -lt 60; $i++) {

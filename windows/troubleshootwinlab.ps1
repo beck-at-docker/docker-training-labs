@@ -511,6 +511,14 @@ function Abandon-Lab {
     if ($confirm -match "^[yY]$") {
         Clear-CurrentScenario
         Write-Host "Lab abandoned."
+        # Silently restore the environment in the background so the next lab
+        # starts from a clean state. Piping 'y' satisfies all.ps1's confirmation
+        # prompt; the job runs detached so nothing leaks to the terminal.
+        Start-Job -ScriptBlock {
+            param($installDir)
+            "y" | powershell -ExecutionPolicy Bypass -NonInteractive `
+                             -File "$installDir\scenarios\all.ps1"
+        } -ArgumentList $INSTALL_DIR | Out-Null
     } else {
         Write-Host "Cancelled."
     }
