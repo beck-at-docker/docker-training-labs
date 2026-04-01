@@ -80,13 +80,45 @@ export NO_PROXY=
 # END DOCKER TRAINING LAB PROXY BREAK
 EOF
 
+# ------------------------------------------------------------------
+# Restart Docker Desktop so it reads the updated daemon.json.
+#
+# daemon.json is not written back by Docker on shutdown, so there is
+# no race condition - we can restart without stopping first.
+# ------------------------------------------------------------------
 echo ""
-echo "IMPORTANT: You must restart Docker Desktop for changes to take effect!"
-echo "You must also restart your terminal or run: source $SHELL_RC"
+echo "Restarting Docker Desktop to apply proxy settings..."
+
+if systemctl --user restart docker-desktop 2>/dev/null; then
+    echo "  Restart signal sent via systemctl"
+else
+    pkill -f "docker-desktop" 2>/dev/null || true
+    echo "  Warning: Could not restart Docker Desktop automatically via systemctl"
+    echo "  Please restart Docker Desktop manually before starting the lab"
+fi
+
+echo "Docker Desktop must be started manually..."
+echo "  Waiting for Docker Desktop to restart..."
+DOCKER_READY=0
+for i in $(seq 1 30); do
+    if docker info &>/dev/null 2>&1; then
+        DOCKER_READY=1
+        break
+    fi
+    sleep 2
+done
+
+if [ "$DOCKER_READY" -eq 0 ]; then
+    echo "  Warning: Docker Desktop did not come back within 60s"
+    echo "  You may need to wait a moment before the break is fully active"
+fi
+
+echo ""
+echo "Docker Desktop broken"
 echo ""
 echo "Proxy configuration broken in:"
-echo "   - $DOCKER_CONFIG (requires Docker restart)"
-echo "   - $SHELL_RC (requires terminal restart)"
+echo "   - $DOCKER_CONFIG (daemon restart applied)"
+echo "   - $SHELL_RC (requires terminal restart or: source $SHELL_RC)"
 echo ""
 
 if [ -n "$DAEMON_BACKUP_CREATED" ] || [ -n "$SHELL_BACKUP_CREATED" ]; then
@@ -96,5 +128,4 @@ if [ -n "$DAEMON_BACKUP_CREATED" ] || [ -n "$SHELL_BACKUP_CREATED" ]; then
     echo ""
 fi
 
-echo "Docker Desktop broken..."
 echo "Symptoms: Image pulls fail, container internet access fails"

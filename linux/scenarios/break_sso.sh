@@ -45,6 +45,32 @@ fi
 REGISTRY_EXCLUDE="registry-1.docker.io,production.cloudflare.docker.com,index.docker.io,auth.docker.io"
 
 # ------------------------------------------------------------------
+# Stop Docker Desktop BEFORE modifying settings files.
+#
+# Docker Desktop persists its in-memory configuration back to
+# settings.json on clean shutdown. Writing the broken settings first
+# and then restarting would cause the graceful shutdown to overwrite
+# our changes. Stopping the process first prevents that race.
+# ------------------------------------------------------------------
+echo ""
+echo "Stopping Docker Desktop before modifying settings..."
+
+if systemctl --user stop docker-desktop 2>/dev/null; then
+    echo "  Stopped via systemctl"
+else
+    pkill -f "docker-desktop" 2>/dev/null || true
+    echo "  Stopped via pkill"
+fi
+
+# Wait for the Docker Desktop process to exit
+for i in $(seq 1 15); do
+    if ! pgrep -f "docker-desktop" > /dev/null 2>&1; then
+        break
+    fi
+    sleep 1
+done
+
+# ------------------------------------------------------------------
 # Method 1: Corrupt Docker Desktop's GUI proxy settings.
 #
 # Prefer ~/.docker/desktop/settings.json (Docker Desktop's own config),
@@ -116,16 +142,14 @@ echo "  Docker Hub credentials cleared"
 echo ""
 echo "Restarting Docker Desktop to apply proxy settings..."
 
-if systemctl --user restart docker-desktop 2>/dev/null; then
+if systemctl --user start docker-desktop 2>/dev/null; then
     echo "  Restart signal sent via systemctl"
 else
-    # systemctl failed (e.g. not installed as a service) - fall back to
-    # killing the process. The user will need to relaunch manually.
-    pkill -f "docker-desktop" 2>/dev/null || true
     echo "  Warning: Could not restart Docker Desktop automatically via systemctl"
     echo "  Please restart Docker Desktop manually before attempting to sign in"
 fi
 
+echo "Docker Desktop must be started manually..."
 echo "  Waiting for Docker Desktop to restart..."
 DOCKER_READY=0
 for i in $(seq 1 30); do

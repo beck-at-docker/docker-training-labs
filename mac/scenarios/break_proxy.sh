@@ -142,6 +142,8 @@ echo "Restarting Docker Desktop to apply proxy settings..."
 # Relaunch Docker Desktop
 open /Applications/Docker.app
 
+echo "Docker Desktop must be started manually..."
+
 # Poll in two stages:
 #
 #   Stage 1 - wait for the daemon to be up (docker info succeeds)

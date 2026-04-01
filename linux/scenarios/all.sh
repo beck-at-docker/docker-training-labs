@@ -415,6 +415,7 @@ else
     echo "  Please restart Docker Desktop manually before continuing"
 fi
 
+echo "Docker Desktop must be started manually..."
 echo "Waiting for Docker Desktop to restart..."
 DOCKER_READY=0
 for i in $(seq 1 60); do

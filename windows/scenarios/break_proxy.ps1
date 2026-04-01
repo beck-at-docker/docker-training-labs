@@ -106,6 +106,7 @@ if (Test-Path $dockerExe) {
 }
 
 # Poll until daemon is ready
+Write-Host "Docker Desktop must be started manually..."
 Write-Host "  Waiting for Docker Desktop to restart..."
 $ready = $false
 for ($i = 0; $i -lt 30; $i++) {
