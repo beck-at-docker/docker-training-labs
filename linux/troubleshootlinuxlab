@@ -87,6 +87,7 @@ fi
 source "$INSTALL_DIR/lib/colors.sh"
 source "$INSTALL_DIR/lib/state.sh"
 source "$INSTALL_DIR/lib/grading.sh"
+source "$INSTALL_DIR/lib/fix.sh"
 
 # ------------------------------------------------------------------
 # show_banner
@@ -834,7 +835,76 @@ run_fix_all() {
 }
 
 # ------------------------------------------------------------------
-# abandon_lab
+# fix_current_lab - Restore Docker Desktop for the active scenario only.
+#
+# Called by abandon_lab so the environment is clean before the next lab
+# starts. Runs the scenario-specific fix function from lib/fix.sh rather
+# than all.sh, which avoids unnecessary work on the other six scenarios.
+#
+# Scenarios split into two groups:
+#
+#   Live fixes (DNS, PORT, BRIDGE) - require a running daemon; use nsenter
+#   or docker rm. No Docker Desktop restart is needed.
+#
+#   Settings fixes (PROXY, PROXYFAIL, SSO, AUTHCONFIG) - write to
+#   settings.json or daemon.json. Docker Desktop must be stopped first or
+#   its graceful-shutdown flush will overwrite the changes. The user is
+#   instructed to restart manually before starting a new lab.
+# ------------------------------------------------------------------
+fix_current_lab() {
+    local scenario
+    scenario=$(get_current_scenario)
+
+    if [ -z "$scenario" ] || [ "$scenario" = "null" ]; then
+        return 0
+    fi
+
+    echo ""
+    echo -e "${YELLOW}Restoring environment for lab: $scenario${NC}"
+    echo ""
+
+    case "$scenario" in
+        DNS)
+            fix_dns
+            ;;
+        PORT)
+            fix_ports
+            ;;
+        BRIDGE)
+            fix_bridge
+            ;;
+        PROXY|PROXYFAIL|SSO|AUTHCONFIG)
+            # These scenarios modify settings.json or daemon.json. Docker Desktop
+            # must be stopped before the write so the running process cannot flush
+            # in-memory state back over our changes on shutdown.
+            stop_docker_desktop
+            echo ""
+
+            case "$scenario" in
+                PROXY)      fix_proxy ;;
+                PROXYFAIL)  fix_proxyfail ;;
+                SSO)        fix_sso ;;
+                AUTHCONFIG) fix_authconfig ;;
+            esac
+
+            echo ""
+            echo -e "${YELLOW}Docker Desktop was stopped to apply the fix.${NC}"
+            echo "Restart Docker Desktop manually, then start your next lab."
+            ;;
+        *)
+            echo -e "${YELLOW}No targeted fix available for: $scenario${NC}"
+            echo "Use option 9 (Fix All) to restore the environment manually."
+            ;;
+    esac
+
+    echo ""
+}
+
+# ------------------------------------------------------------------
+# abandon_lab - Discard the active lab without scoring it.
+#
+# Applies the scenario-specific fix synchronously before clearing state so
+# the environment is clean when the next lab starts.
 # ------------------------------------------------------------------
 abandon_lab() {
     local current
@@ -849,12 +919,12 @@ abandon_lab() {
     read -p "Are you sure? This will not be scored. (y/N): " confirm
 
     if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
+        # Fix the environment before clearing state. This runs synchronously
+        # so the user can see what is happening and gets the restart prompt
+        # for settings-file scenarios before the menu redraws.
+        fix_current_lab
         clear_current_scenario
         echo "Lab abandoned."
-        # Silently restore the environment in the background so the next lab
-        # starts from a clean state. 'echo y' satisfies all.sh's confirmation
-        # prompt; stdout/stderr are suppressed so nothing leaks to the terminal.
-        echo "y" | bash "$INSTALL_DIR/scenarios/all.sh" > /dev/null 2>&1 &
     else
         echo "Cancelled."
     fi

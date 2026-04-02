@@ -52,6 +52,7 @@ $REPORTS_DIR  = "$STATE_DIR\reports"
 . "$INSTALL_DIR\lib\colors.ps1"
 . "$INSTALL_DIR\lib\state.ps1"
 . "$INSTALL_DIR\lib\grading.ps1"
+. "$INSTALL_DIR\lib\fix.ps1"
 
 # ------------------------------------------------------------------
 function Show-Banner {
@@ -500,6 +501,70 @@ function Show-ReportCard {
 }
 
 # ------------------------------------------------------------------
+# Invoke-FixCurrentLab - Restore Docker Desktop for the active scenario only.
+#
+# Called by Abandon-Lab so the environment is clean before the next lab
+# starts. Runs the scenario-specific Fix-* function from lib/fix.ps1 rather
+# than all.ps1, which avoids unnecessary work on the other scenarios.
+#
+# Scenarios split into two groups:
+#
+#   Live fixes (DNS, PORT, BRIDGE) - require a running daemon; use nsenter
+#   or docker rm. No Docker Desktop restart is needed.
+#
+#   Settings fixes (PROXY, PROXYFAIL, SSO, AUTHCONFIG) - write to
+#   settings-store.json. Docker Desktop must be stopped first or its graceful-
+#   shutdown flush will overwrite the changes. The user is instructed to
+#   restart manually before starting a new lab.
+# ------------------------------------------------------------------
+function Invoke-FixCurrentLab {
+    $scenario = Get-CurrentScenario
+    if (-not $scenario -or $scenario -eq "null") { return }
+
+    Write-Host ""
+    Write-Yellow "Restoring environment for lab: $scenario"
+    Write-Host ""
+
+    switch ($scenario) {
+        "DNS"   { Fix-Dns;    break }
+        "PORT"  { Fix-Ports;  break }
+        "BRIDGE"{ Fix-Bridge; break }
+
+        { $_ -in @("PROXY", "PROXYFAIL", "SSO", "AUTHCONFIG") } {
+            # These scenarios write to settings-store.json. Docker Desktop must
+            # be stopped before the write so the running process cannot flush
+            # in-memory state back over our changes on shutdown.
+            Stop-DockerDesktop
+            Write-Host ""
+
+            switch ($scenario) {
+                "PROXY"      { Fix-Proxy;      break }
+                "PROXYFAIL"  { Fix-ProxyFail;  break }
+                "SSO"        { Fix-Sso;        break }
+                "AUTHCONFIG" { Fix-AuthConfig; break }
+            }
+
+            Write-Host ""
+            Write-Yellow "Docker Desktop was stopped to apply the fix."
+            Write-Host "Restart Docker Desktop manually, then start your next lab."
+            break
+        }
+
+        default {
+            Write-Yellow "No targeted fix available for: $scenario"
+            Write-Host "Use option 9 (Fix All) to restore the environment manually."
+        }
+    }
+
+    Write-Host ""
+}
+
+# ------------------------------------------------------------------
+# Abandon-Lab - Discard the active lab without scoring it.
+#
+# Applies the scenario-specific fix synchronously before clearing state so
+# the environment is clean when the next lab starts.
+# ------------------------------------------------------------------
 function Abandon-Lab {
     $current = Get-CurrentScenario
     if (-not $current -or $current -eq "null") {
@@ -509,16 +574,12 @@ function Abandon-Lab {
     Write-Yellow "Abandoning lab: $current"
     $confirm = Read-Host "Are you sure? This will not be scored. (y/N)"
     if ($confirm -match "^[yY]$") {
+        # Fix the environment before clearing state. This runs synchronously
+        # so the user can see what is happening and gets the restart prompt
+        # for settings-store.json scenarios before the menu redraws.
+        Invoke-FixCurrentLab
         Clear-CurrentScenario
         Write-Host "Lab abandoned."
-        # Silently restore the environment in the background so the next lab
-        # starts from a clean state. Piping 'y' satisfies all.ps1's confirmation
-        # prompt; the job runs detached so nothing leaks to the terminal.
-        Start-Job -ScriptBlock {
-            param($installDir)
-            "y" | powershell -ExecutionPolicy Bypass -NonInteractive `
-                             -File "$installDir\scenarios\all.ps1"
-        } -ArgumentList $INSTALL_DIR | Out-Null
     } else {
         Write-Host "Cancelled."
     }

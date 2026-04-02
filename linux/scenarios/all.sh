@@ -2,16 +2,13 @@
 # all.sh - Restore all Docker Desktop systems
 # FOR DEVELOPMENT/TESTING ONLY - Not for trainees
 #
-# Standalone script: all fix logic is inlined. No external fix scripts required.
-# Runs every section regardless of individual failures, performs a single
-# Docker Desktop restart at the end, then prints a clear pass/fail summary.
+# Sources lib/fix.sh for individual scenario fix functions, then runs all of
+# them in the correct order, performs a single Docker Desktop restart, and
+# prints a clear pass/fail summary.
 
-# ===========================================================================
-# Configuration
-# ===========================================================================
-
-DESKTOP_SETTINGS="$HOME/.docker/desktop/settings.json"
-DAEMON_CONFIG="$HOME/.docker/daemon.json"
+# Source shared fix functions (DESKTOP_SETTINGS, DAEMON_CONFIG, stop_docker_desktop, fix_*)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/../lib/fix.sh"
 
 # ===========================================================================
 # Shared helpers
@@ -19,7 +16,7 @@ DAEMON_CONFIG="$HOME/.docker/daemon.json"
 
 # _reset_lab_state - Clear the active scenario from config.json.
 # Called once at the end after all fixes have been applied.
-_reset_lab_state() {
+_reset_lab_state() {  # local to all.sh - not needed in lib/fix.sh
     local config_file="$HOME/.docker-training-labs/config.json"
     if [ ! -f "$config_file" ]; then
         return
@@ -58,271 +55,6 @@ run_section() {
     fi
     echo ""
     echo "=========================================="
-}
-
-# ===========================================================================
-# Fix functions - one per scenario
-# ===========================================================================
-
-# -- [1/7] Bridge Network ----------------------------------------------------
-fix_bridge() {
-    echo "Restoring Docker bridge network..."
-
-    echo "Removing test containers..."
-    docker rm -f broken-web 2>/dev/null && echo "  Removed broken-web" || true
-    docker rm -f broken-app 2>/dev/null && echo "  Removed broken-app" || true
-
-    echo ""
-    echo "Restoring iptables rules..."
-    docker run --rm --privileged --pid=host alpine:latest nsenter -t 1 -m -u -n -i sh -c '
-        iptables -D FORWARD -i docker0 -j DROP 2>/dev/null || true
-        echo "DROP rule removed"
-    ' || echo "  iptables restore failed - the consolidated restart should clear it"
-
-    echo ""
-    echo "Verifying network connectivity..."
-    if docker run --rm alpine:latest ping -c 2 8.8.8.8 > /dev/null 2>&1; then
-        echo "  Internet connectivity working"
-    else
-        echo "  Internet connectivity still broken"
-    fi
-}
-
-# -- [2/7] DNS Resolution ----------------------------------------------------
-fix_dns() {
-    echo "Fixing Docker Desktop DNS..."
-
-    if ! docker info &>/dev/null; then
-        echo "Error: Docker Desktop is not running"
-        return 1
-    fi
-
-    if ! docker run --rm --privileged --pid=host alpine:latest \
-        nsenter -t 1 -m -u -n -i sh -c '
-            iptables -D OUTPUT -p udp --dport 53 -j DROP 2>/dev/null || true
-            iptables -D OUTPUT -p tcp --dport 53 -j DROP 2>/dev/null || true
-        '; then
-        echo "Error: Failed to access the Docker VM via nsenter"
-        return 1
-    fi
-
-    echo ""
-    echo "Verifying DNS resolution..."
-    if docker pull hello-world > /dev/null 2>&1; then
-        echo "  DNS resolution working"
-        docker rmi hello-world > /dev/null 2>&1 || true
-    else
-        echo "  DNS still broken - the consolidated restart should clear this"
-    fi
-}
-
-# -- [3/7] Proxy Configuration -----------------------------------------------
-# On Linux, Docker Desktop uses daemon.json for proxy settings (not
-# settings.json), so this function targets that file.
-fix_proxy() {
-    local latest_backup rc_file
-    echo "Removing broken proxy configuration..."
-
-    echo "Checking daemon.json..."
-    if [ -f "$DAEMON_CONFIG" ]; then
-        if grep -q "192\.0\.2\.1" "$DAEMON_CONFIG" 2>/dev/null; then
-            echo "  Found broken proxy config"
-            latest_backup=$(ls -t "${DAEMON_CONFIG}.backup"* 2>/dev/null | head -1)
-            if [ -n "$latest_backup" ]; then
-                cp "$latest_backup" "$DAEMON_CONFIG"
-                echo "  Restored from backup: $latest_backup"
-            else
-                rm "$DAEMON_CONFIG"
-                echo "  Removed broken daemon.json (no backup found)"
-            fi
-        else
-            echo "  daemon.json is clean"
-        fi
-    else
-        echo "  No daemon.json found"
-    fi
-
-    echo ""
-    echo "Checking shell RC files..."
-    for rc_file in "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.zshrc"; do
-        if [ -f "$rc_file" ]; then
-            if grep -q "BEGIN DOCKER TRAINING LAB PROXY BREAK" "$rc_file" 2>/dev/null; then
-                echo "  Found broken proxy in $rc_file"
-                sed -i '/BEGIN DOCKER TRAINING LAB PROXY BREAK/,/END DOCKER TRAINING LAB PROXY BREAK/d' "$rc_file"
-                echo "  Removed proxy settings from $rc_file"
-            fi
-        fi
-    done
-
-    echo ""
-    echo "Proxy configuration cleaned up"
-    echo "Run 'fix-docker-proxy' in this terminal to clear any lingering env vars."
-}
-
-# -- [4/7] Proxy Failure Simulation ------------------------------------------
-fix_proxyfail() {
-    local latest_backup
-    echo "Removing broken loopback proxy configuration..."
-
-    # Fix settings.json (primary path when Docker Desktop is installed)
-    if [ -f "$DESKTOP_SETTINGS" ]; then
-        echo "Checking Docker Desktop settings file..."
-        latest_backup=$(ls -t "${DESKTOP_SETTINGS}.backup-proxyfail-"* 2>/dev/null | head -1)
-        if [ -n "$latest_backup" ]; then
-            cp "$latest_backup" "$DESKTOP_SETTINGS"
-            echo "  Restored from backup: $(basename "$latest_backup")"
-        else
-            echo "  No backup found, resetting proxy keys to system mode"
-            python3 - "$DESKTOP_SETTINGS" << 'PYEOF'
-import json, sys
-path = sys.argv[1]
-with open(path, 'r') as f:
-    data = json.load(f)
-for key in ['ProxyHTTP', 'ProxyHTTPS', 'ProxyExclude',
-            'ContainersProxyHTTP', 'ContainersProxyHTTPS', 'ContainersProxyExclude']:
-    data.pop(key, None)
-data['ProxyHTTPMode']           = 'system'
-data['ContainersProxyHTTPMode'] = 'system'
-with open(path, 'w') as f:
-    json.dump(data, f, indent=2)
-PYEOF
-            echo "  Proxy keys reset to system mode"
-        fi
-    fi
-
-    # Fix daemon.json (fallback path used if settings.json was absent during break)
-    if [ -f "$DAEMON_CONFIG" ]; then
-        echo "Checking daemon.json..."
-        if grep -q "9753" "$DAEMON_CONFIG" 2>/dev/null; then
-            latest_backup=$(ls -t "${DAEMON_CONFIG}.backup-proxyfail-"* 2>/dev/null | head -1)
-            if [ -n "$latest_backup" ]; then
-                cp "$latest_backup" "$DAEMON_CONFIG"
-                echo "  Restored daemon.json from backup"
-            else
-                rm "$DAEMON_CONFIG"
-                echo "  Removed broken daemon.json (no backup found)"
-            fi
-        else
-            echo "  daemon.json is clean"
-        fi
-    fi
-
-    echo ""
-    echo "Proxy failure configuration cleaned up"
-}
-
-# -- [5/7] SSO Configuration -------------------------------------------------
-fix_sso() {
-    local latest_backup
-    echo "Removing broken SSO proxy configuration..."
-
-    # Fix settings.json (primary path when Docker Desktop is installed)
-    if [ -f "$DESKTOP_SETTINGS" ]; then
-        echo "Checking Docker Desktop settings file..."
-        latest_backup=$(ls -t "${DESKTOP_SETTINGS}.backup-"* 2>/dev/null | head -1)
-        if [ -n "$latest_backup" ]; then
-            cp "$latest_backup" "$DESKTOP_SETTINGS"
-            echo "  Restored from backup: $(basename "$latest_backup")"
-        else
-            echo "  No backup found, resetting proxy keys to system mode"
-            python3 - "$DESKTOP_SETTINGS" << 'PYEOF'
-import json, sys
-path = sys.argv[1]
-with open(path, 'r') as f:
-    data = json.load(f)
-for key in ['ProxyHTTP', 'ProxyHTTPS', 'ProxyExclude',
-            'ContainersProxyHTTP', 'ContainersProxyHTTPS', 'ContainersProxyExclude']:
-    data.pop(key, None)
-data['ProxyHTTPMode']           = 'system'
-data['ContainersProxyHTTPMode'] = 'system'
-with open(path, 'w') as f:
-    json.dump(data, f, indent=2)
-PYEOF
-            echo "  Proxy keys reset to system mode"
-        fi
-    fi
-
-    # Fix daemon.json (fallback path used if settings.json was absent during break)
-    if [ -f "$DAEMON_CONFIG" ]; then
-        echo "Checking daemon.json..."
-        if grep -q "192\.0\.2" "$DAEMON_CONFIG" 2>/dev/null; then
-            latest_backup=$(ls -t "${DAEMON_CONFIG}.backup-"* 2>/dev/null | head -1)
-            if [ -n "$latest_backup" ]; then
-                cp "$latest_backup" "$DAEMON_CONFIG"
-                echo "  Restored daemon.json from backup"
-            else
-                rm "$DAEMON_CONFIG"
-                echo "  Removed broken daemon.json (no backup found)"
-            fi
-        else
-            echo "  daemon.json is clean"
-        fi
-    fi
-
-    echo ""
-    echo "SSO proxy configuration cleaned up"
-    echo "NOTE: Sign back in manually: docker login"
-}
-
-# -- [6/7] Auth Config Enforcement -------------------------------------------
-# authconfig only uses settings.json on Linux; there is no daemon.json fallback.
-fix_authconfig() {
-    local latest_backup
-    echo "Removing broken allowedOrgs configuration..."
-
-    echo "Checking Docker Desktop settings file..."
-    if [ -f "$DESKTOP_SETTINGS" ]; then
-        latest_backup=$(ls -t "${DESKTOP_SETTINGS}.backup-auth-"* 2>/dev/null | head -1)
-        if [ -n "$latest_backup" ]; then
-            cp "$latest_backup" "$DESKTOP_SETTINGS"
-            echo "  Restored from backup: $(basename "$latest_backup")"
-        else
-            echo "  No backup found, removing allowedOrgs key"
-            python3 - "$DESKTOP_SETTINGS" << 'PYEOF'
-import json, sys
-path = sys.argv[1]
-with open(path, 'r') as f:
-    data = json.load(f)
-data.pop('allowedOrgs', None)
-with open(path, 'w') as f:
-    json.dump(data, f, indent=2)
-PYEOF
-            echo "  allowedOrgs key removed"
-        fi
-    else
-        echo "  Settings file not found - nothing to fix"
-    fi
-
-    echo ""
-    echo "allowedOrgs configuration cleaned up"
-    echo "NOTE: Sign back in manually: docker login"
-}
-
-# -- [7/7] Port Conflicts ----------------------------------------------------
-fix_ports() {
-    local pid
-    echo "Cleaning up port conflicts..."
-
-    echo "Removing port squatter containers..."
-    docker rm -f port-squatter-80   2>/dev/null && echo "  Removed port-squatter-80"   || true
-    docker rm -f port-squatter-443  2>/dev/null && echo "  Removed port-squatter-443"  || true
-    docker rm -f port-squatter-3306 2>/dev/null && echo "  Removed port-squatter-3306" || true
-    docker rm -f background-db      2>/dev/null && echo "  Removed background-db"      || true
-
-    echo ""
-    echo "Killing Python HTTP server on port 8080..."
-    if [ -f /tmp/port_squatter_8080.pid ]; then
-        pid=$(cat /tmp/port_squatter_8080.pid)
-        if ps -p "$pid" > /dev/null 2>&1; then
-            kill "$pid" 2>/dev/null && echo "  Killed process $pid" || true
-        fi
-        rm -f /tmp/port_squatter_8080.pid
-    fi
-    # Also kill by name in case the PID file is stale or missing
-    pkill -f "python3 -m http.server 8080" 2>/dev/null && echo "  Killed any remaining HTTP servers" || true
-
-    echo ""
-    echo "Port cleanup complete"
 }
 
 # ===========================================================================
@@ -377,16 +109,7 @@ echo ""
 echo "--- Stopping Docker Desktop ---"
 echo ""
 
-if systemctl --user stop docker-desktop 2>/dev/null; then
-    echo "  Stopped via systemctl"
-else
-    # systemctl stop failed - fall back to direct process kill.
-    echo "  Warning: systemctl stop failed, force killing..."
-    pkill -f "docker-desktop" 2>/dev/null || true
-    sleep 2
-fi
-
-echo "  Docker Desktop stopped"
+stop_docker_desktop
 echo ""
 echo "=========================================="
 
