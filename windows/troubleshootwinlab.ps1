@@ -88,7 +88,16 @@ function Show-MainMenu {
         Write-Host ""
         Write-Host "4. Login Problems"
         Write-Host ""
-        Write-Host "5. View my report card"
+        Write-Host "5. Broken Networking"
+        Write-Host ""
+        Write-Host "6. Auth Config Errors"
+        Write-Host ""
+        Write-Host "7. Proxy Connection Issues"
+        Write-Host ""
+        Write-Host "8. View my report card"
+        Write-Host ""
+        Write-Host "--- Trainer Tools ---"
+        Write-Host "9. Fix All"
         Write-Host "0. Exit"
     }
 
@@ -223,6 +232,108 @@ Restarting Docker Desktop will clear the problem as a last
 resort, but try to find and remove the root cause first.
 "@
         }
+        "BRIDGE" {
+            Write-Host @"
+Problem: Container networking is broken
+
+Your containers start successfully but have no network
+connectivity. They can't reach the internet or each other,
+even though they appear to have IP addresses.
+
+Symptoms you should observe:
+  - Containers can't ping external IPs
+  - Containers can't communicate with each other
+  - Docker daemon is running normally
+  - Network appears to exist but doesn't work
+
+Diagnostic Commands to Try:
+  docker network ls
+  docker network inspect bridge
+  docker run --rm alpine:latest ping -c 3 8.8.8.8
+  docker run --rm alpine:latest ip route
+
+The blocking rule lives inside the Docker Desktop VM, not on
+the Windows host directly. To inspect it, use a privileged
+container to enter the VM's network namespace:
+
+  docker run --rm --privileged --pid=host alpine:latest ``
+    nsenter -t 1 -m -u -n -i sh -c 'iptables -L FORWARD -n -v'
+
+Look for DROP rules targeting docker0. Fix it by removing the
+offending iptables rule and cleaning up the test containers.
+"@
+        }
+        "AUTHCONFIG" {
+            Write-Host @"
+Problem: Docker Desktop keeps signing you out immediately
+
+After restarting Docker Desktop, you find yourself signed out.
+When you attempt to sign in via SSO, the browser auth completes
+successfully - but Docker Desktop immediately signs you out again.
+This happens every single time, with no error message.
+
+Unlike the SSO lab, the proxy configuration is clean. Something
+else in Docker Desktop's settings is causing every authenticated
+session to be rejected the moment it is established.
+
+Symptoms you should observe:
+  - Docker Desktop shows you as signed out on startup
+  - docker info shows no Username field
+  - SSO loop: browser completes but Desktop immediately logs out
+  - docker pull still works for public images (daemon is healthy)
+  - No proxy errors in Docker Desktop logs
+
+Diagnostic Commands to Try:
+  docker info | Select-String username
+  docker pull alpine:latest
+  cat `$env:APPDATA\Docker\settings-store.json
+
+Look for:
+  - The allowedOrgs key in settings-store.json
+  - Its value format: should be a plain org slug like ["my-company"]
+    not a URL like ["https://hub.docker.com/u/my-company"]
+
+Fix the allowedOrgs value, restart Docker Desktop, sign back in,
+then run troubleshootwinlab --check.
+"@
+        }
+        "PROXYFAIL" {
+            Write-Host @"
+Problem: Docker cannot reach external registries
+
+Your Docker Desktop cannot pull images. Attempts fail immediately
+with a connection error - there is no timeout, the failure is
+instant. Container internet access is also broken.
+
+This is a proxy misconfiguration, but the error behaviour is
+different from a misconfigured proxy that simply doesn't route
+traffic. Pay attention to whether the error says "connection
+refused" or "connection timed out" - that distinction tells you
+exactly what kind of proxy problem you're dealing with.
+
+On Windows, Docker Desktop proxy config lives in:
+  `$env:APPDATA\Docker\settings-store.json
+
+Symptoms you should observe:
+  - docker pull fails immediately (no long wait before error)
+  - Error message includes "connection refused"
+  - Containers can't reach the internet
+  - Host machine internet access works fine
+
+Diagnostic Commands to Try:
+  docker pull hello-world
+  docker info | Select-String proxy
+  cat `$env:APPDATA\Docker\settings-store.json
+  [System.Environment]::GetEnvironmentVariable('HTTP_PROXY', 'User')
+
+Look for:
+  - ProxyHTTPMode set to "manual"
+  - ProxyHTTP / ProxyHTTPS pointing to a loopback address (127.0.0.1)
+    with a port that has nothing listening on it
+
+Fix the proxy config and restart Docker Desktop to resolve!
+"@
+        }
     }
 }
 
@@ -247,8 +358,20 @@ function Start-Lab {
             $breakScript = "$INSTALL_DIR\scenarios\break_proxy.ps1"
         }
         4 {
-            $labName     = "SSO"    # -> scenarios\break_sso.ps1, tests\test_sso.ps1
+            $labName     = "SSO"      # -> scenarios\break_sso.ps1, tests\test_sso.ps1
             $breakScript = "$INSTALL_DIR\scenarios\break_sso.ps1"
+        }
+        5 {
+            $labName     = "BRIDGE"     # -> scenarios\break_bridge.ps1, tests\test_bridge.ps1
+            $breakScript = "$INSTALL_DIR\scenarios\break_bridge.ps1"
+        }
+        6 {
+            $labName     = "AUTHCONFIG" # -> scenarios\break_authconfig.ps1, tests\test_authconfig.ps1
+            $breakScript = "$INSTALL_DIR\scenarios\break_authconfig.ps1"
+        }
+        7 {
+            $labName     = "PROXYFAIL"  # -> scenarios\break_proxyfail.ps1, tests\test_proxyfail.ps1
+            $breakScript = "$INSTALL_DIR\scenarios\break_proxyfail.ps1"
         }
         default {
             Write-Red "Invalid lab selection"
@@ -455,32 +578,49 @@ function Show-ReportCard {
         return
     }
 
-    $totalScore = 0
-    $labCount   = 0
-    $dnsScore   = $null
-    $portScore  = $null
-    $proxyScore = $null
-    $ssoScore   = $null
+    $dnsScore        = $null
+    $portScore       = $null
+    $proxyScore      = $null
+    $ssoScore        = $null
+    $bridgeScore     = $null
+    $authconfigScore = $null
+    $proxyfailScore  = $null
 
     # Each scenario variable is overwritten on every matching row, so if a
     # trainee attempted the same lab multiple times only the last score is
-    # shown. All attempts count toward the overall average.
+    # shown. The average is computed from these last-score-per-scenario values
+    # after the loop, so retries don't inflate the count.
     Import-Csv $GRADES_FILE | Where-Object { $_.trainee_id -eq $env:USERNAME } | ForEach-Object {
         switch ($_.scenario) {
-            "DNS"   { $dnsScore   = "$($_.score)%" }
-            "PORT"  { $portScore  = "$($_.score)%" }
-            "PROXY" { $proxyScore = "$($_.score)%" }
-            "SSO"   { $ssoScore   = "$($_.score)%" }
+            "DNS"        { $dnsScore        = "$($_.score)%" }
+            "PORT"       { $portScore       = "$($_.score)%" }
+            "PROXY"      { $proxyScore      = "$($_.score)%" }
+            "SSO"        { $ssoScore        = "$($_.score)%" }
+            "BRIDGE"     { $bridgeScore     = "$($_.score)%" }
+            "AUTHCONFIG" { $authconfigScore = "$($_.score)%" }
+            "PROXYFAIL"  { $proxyfailScore  = "$($_.score)%" }
         }
-        $totalScore += [int]$_.score
-        $labCount++
+    }
+
+    # Sum and count the last score for each attempted scenario only.
+    $totalScore = 0
+    $labCount   = 0
+    foreach ($s in @($dnsScore, $portScore, $proxyScore, $ssoScore,
+                     $bridgeScore, $authconfigScore, $proxyfailScore)) {
+        if ($null -ne $s) {
+            $totalScore += [int]($s.TrimEnd('%'))
+            $labCount++
+        }
     }
 
     Write-Host "Lab Scores:"
-    Write-Host "  DNS Resolution:  $(if ($dnsScore)   { $dnsScore }   else { 'Not attempted' })"
-    Write-Host "  Port Problems:   $(if ($portScore)  { $portScore }  else { 'Not attempted' })"
-    Write-Host "  Pull Problems:   $(if ($proxyScore) { $proxyScore } else { 'Not attempted' })"
-    Write-Host "  Login Problems:  $(if ($ssoScore)   { $ssoScore }   else { 'Not attempted' })"
+    Write-Host "  DNS Resolution:      $(if ($dnsScore)        { $dnsScore }        else { 'Not attempted' })"
+    Write-Host "  Port Problems:       $(if ($portScore)       { $portScore }       else { 'Not attempted' })"
+    Write-Host "  Pull Problems:       $(if ($proxyScore)      { $proxyScore }      else { 'Not attempted' })"
+    Write-Host "  Login Problems:      $(if ($ssoScore)        { $ssoScore }        else { 'Not attempted' })"
+    Write-Host "  Broken Networking:   $(if ($bridgeScore)     { $bridgeScore }     else { 'Not attempted' })"
+    Write-Host "  Auth Config Errors:  $(if ($authconfigScore) { $authconfigScore } else { 'Not attempted' })"
+    Write-Host "  Proxy Conn Issues:   $(if ($proxyfailScore)  { $proxyfailScore }  else { 'Not attempted' })"
     Write-Host ""
 
     if ($labCount -gt 0) {
@@ -606,6 +746,18 @@ function Reset-Lab {
 }
 
 # ------------------------------------------------------------------
+# Run-FixAll - Trainer utility: run all fix scripts with a single restart
+# ------------------------------------------------------------------
+function Run-FixAll {
+    Show-Banner
+    Write-Yellow "Fix All - Trainer Mode"
+    Write-Host ""
+    & powershell -ExecutionPolicy Bypass -File "$INSTALL_DIR\scenarios\all.ps1"
+    Write-Host ""
+    Read-Host "Press enter to continue"
+}
+
+# ------------------------------------------------------------------
 # Main - Entry point
 #
 # The menu has two distinct states:
@@ -658,7 +810,11 @@ function Main {
                 "2" { Start-Lab 2; exit 0 }
                 "3" { Start-Lab 3; exit 0 }
                 "4" { Start-Lab 4; exit 0 }
-                "5" { Show-ReportCard; Read-Host "Press enter to continue" }
+                "5" { Start-Lab 5; exit 0 }
+                "6" { Start-Lab 6; exit 0 }
+                "7" { Start-Lab 7; exit 0 }
+                "8" { Show-ReportCard; Read-Host "Press enter to continue" }
+                "9" { Run-FixAll }
                 "0" { Write-Host "Goodbye!"; exit 0 }
                 default { Write-Host "Invalid option"; Start-Sleep 1 }
             }
