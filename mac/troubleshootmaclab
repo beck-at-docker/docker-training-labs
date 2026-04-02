@@ -814,7 +814,12 @@ fix_current_lab() {
         BRIDGE)
             fix_bridge
             ;;
-        PROXY|PROXYFAIL|SSO|AUTHCONFIG)
+        PROXY)
+            # Proxy fix uses the backend API while Docker is running.
+            # No restart required.
+            fix_proxy
+            ;;
+        PROXYFAIL|SSO|AUTHCONFIG)
             # These scenarios modify settings-store.json. Docker Desktop must
             # be stopped before the write so the running process cannot flush
             # in-memory state back over our changes on shutdown.
@@ -822,7 +827,6 @@ fix_current_lab() {
             echo ""
 
             case "$scenario" in
-                PROXY)      fix_proxy ;;      
                 PROXYFAIL)  fix_proxyfail ;;
                 SSO)        fix_sso ;;
                 AUTHCONFIG) fix_authconfig ;;

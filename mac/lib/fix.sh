@@ -104,42 +104,67 @@ fix_dns() {
     fi
 }
 
-# fix_proxy - Remove the bogus manual proxy from settings-store.json and RC files.
+# fix_proxy - Restore proxy settings via the Docker Desktop backend API.
 #
-# Restores from a scenario-specific backup if one exists; otherwise resets
-# proxy keys to system mode directly. Also strips the break-sentinel block
-# from shell RC files that break_proxy.sh may have injected.
+# Uses the same backend socket API path as break_proxy.sh to restore proxy
+# mode to "system" with empty address fields. This approach works on
+# Business/Enterprise accounts where the admin policy is loaded at startup
+# and Docker Desktop is kept running throughout the fix.
 #
-# MUST be called after stop_docker_desktop.
+# Also strips the break-sentinel block from shell RC files that
+# break_proxy.sh may have injected.
+#
+# Does NOT require stop_docker_desktop — Docker Desktop must be running.
 fix_proxy() {
-    local latest_backup rc_file
+    local rc_file
+    local backend_sock="$HOME/Library/Containers/com.docker.docker/Data/backend.sock"
     echo "Removing broken proxy configuration..."
 
-    echo "Checking Docker Desktop settings store..."
-    if [ -f "$SETTINGS_STORE" ]; then
-        latest_backup=$(ls -t "${SETTINGS_STORE}.backup-proxy-"* 2>/dev/null | head -1)
-        if [ -n "$latest_backup" ]; then
-            cp "$latest_backup" "$SETTINGS_STORE"
-            echo "  Restored settings store from backup: $(basename "$latest_backup")"
+    # ------------------------------------------------------------------
+    # Restore system proxy mode via the backend API.
+    #
+    # Passing empty strings for http/https clears the proxy addresses.
+    # Mode "system" tells Docker Desktop to follow macOS network settings
+    # rather than any manually configured proxy.
+    # ------------------------------------------------------------------
+    if [ -S "$backend_sock" ]; then
+        echo "Restoring proxy settings via Docker Desktop backend API..."
+        HTTP_STATUS=$(curl \
+            --silent \
+            --unix-socket "$backend_sock" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -w "%{http_code}" \
+            -o /tmp/proxy-fix-api-response.txt \
+            "http://localhost/app/settings" \
+            -d '{
+                "vm": {
+                    "proxy": {
+                        "mode":    {"value": "system"},
+                        "http":    {"value": ""},
+                        "https":   {"value": ""},
+                        "exclude": {"value": ""}
+                    },
+                    "containersProxy": {
+                        "mode":    {"value": "system"},
+                        "http":    {"value": ""},
+                        "https":   {"value": ""},
+                        "exclude": {"value": ""}
+                    }
+                }
+            }' 2>&1) || true
+        rm -f /tmp/proxy-fix-api-response.txt
+
+        if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "204" ]; then
+            echo "  Proxy reset to system mode via API (HTTP $HTTP_STATUS)"
         else
-            echo "  No backup found, resetting proxy keys to system mode"
-            python3 - "$SETTINGS_STORE" << 'PYEOF'
-import json, sys
-path = sys.argv[1]
-with open(path, 'r') as f:
-    data = json.load(f)
-for key in ['ProxyHTTP', 'ProxyHTTPS', 'ProxyExclude',
-            'ContainersProxyHTTP', 'ContainersProxyHTTPS', 'ContainersProxyExclude']:
-    data.pop(key, None)
-data['ProxyHTTPMode']           = 'system'
-data['ContainersProxyHTTPMode'] = 'system'
-with open(path, 'w') as f:
-    json.dump(data, f, indent=2)
-PYEOF
-            echo "  Proxy keys reset to system mode"
+            echo "  Warning: API returned HTTP $HTTP_STATUS — falling back to file edit"
+            _fix_proxy_file_fallback
         fi
     else
-        echo "  Settings store not found - nothing to fix"
+        echo "  Backend socket not found — Docker Desktop may not be running"
+        echo "  Falling back to direct file edit (requires Docker restart to take effect)"
+        _fix_proxy_file_fallback
     fi
 
     echo ""
@@ -157,6 +182,30 @@ PYEOF
     echo ""
     echo "Proxy configuration cleaned up"
     echo "Run 'fix-docker-proxy' in this terminal to clear any lingering env vars."
+}
+
+# _fix_proxy_file_fallback - Direct settings-store.json edit used when the
+# backend API is unavailable. Strips proxy address fields and forces mode to
+# system. Docker Desktop must be restarted for this to take effect.
+_fix_proxy_file_fallback() {
+    if [ -f "$SETTINGS_STORE" ]; then
+        python3 - "$SETTINGS_STORE" << 'PYEOF'
+import json, sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    data = json.load(f)
+for key in ['ProxyHTTP', 'ProxyHTTPS', 'ProxyExclude',
+            'ContainersProxyHTTP', 'ContainersProxyHTTPS', 'ContainersProxyExclude']:
+    data.pop(key, None)
+data['ProxyHTTPMode']           = 'system'
+data['ContainersProxyHTTPMode'] = 'system'
+with open(path, 'w') as f:
+    json.dump(data, f, indent=2)
+PYEOF
+        echo "  Proxy keys reset to system mode in settings-store.json"
+    else
+        echo "  Settings store not found - nothing to fix"
+    fi
 }
 
 # fix_proxyfail - Remove the loopback proxy address from settings-store.json.
