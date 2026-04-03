@@ -64,14 +64,23 @@ Copy-Item $settingsStore $backupPath
 
 $data = Get-Content $settingsStore -Raw | ConvertFrom-Json
 
-$data | Add-Member -MemberType NoteProperty -Name ProxyHTTPMode           -Value "manual"          -Force
-$data | Add-Member -MemberType NoteProperty -Name ProxyHTTP               -Value $bogusProxy        -Force
-$data | Add-Member -MemberType NoteProperty -Name ProxyHTTPS              -Value $bogusProxy        -Force
-$data | Add-Member -MemberType NoteProperty -Name ProxyExclude            -Value $registryExclude  -Force
-$data | Add-Member -MemberType NoteProperty -Name ContainersProxyHTTPMode -Value "system"           -Force
-$data | Add-Member -MemberType NoteProperty -Name ContainersProxyHTTP     -Value ""                 -Force
-$data | Add-Member -MemberType NoteProperty -Name ContainersProxyHTTPS    -Value ""                 -Force
-$data | Add-Member -MemberType NoteProperty -Name ContainersProxyExclude  -Value ""                 -Force
+# NOTE: Docker Desktop uses a two-field pattern for manual proxy config.
+# ProxyHTTP/HTTPS is the address shown in the UI (display/remembered value);
+# Docker Desktop only routes traffic through OverrideProxyHTTP/HTTPS.
+# Without setting the Override fields, DD falls back to system proxy on
+# restart and the break has no effect.
+$data | Add-Member -MemberType NoteProperty -Name ProxyHTTPMode                -Value "manual"          -Force
+$data | Add-Member -MemberType NoteProperty -Name ProxyHTTP                    -Value $bogusProxy        -Force  # UI display / remembered value
+$data | Add-Member -MemberType NoteProperty -Name ProxyHTTPS                   -Value $bogusProxy        -Force  # UI display / remembered value
+$data | Add-Member -MemberType NoteProperty -Name OverrideProxyHTTP            -Value $bogusProxy        -Force  # active value DD routes traffic through
+$data | Add-Member -MemberType NoteProperty -Name OverrideProxyHTTPS           -Value $bogusProxy        -Force  # active value DD routes traffic through
+$data | Add-Member -MemberType NoteProperty -Name ProxyExclude                 -Value $registryExclude   -Force
+$data | Add-Member -MemberType NoteProperty -Name ContainersProxyHTTPMode      -Value "system"           -Force
+$data | Add-Member -MemberType NoteProperty -Name ContainersProxyHTTP          -Value ""                 -Force
+$data | Add-Member -MemberType NoteProperty -Name ContainersProxyHTTPS         -Value ""                 -Force
+$data | Add-Member -MemberType NoteProperty -Name ContainersOverrideProxyHTTP  -Value ""                 -Force
+$data | Add-Member -MemberType NoteProperty -Name ContainersOverrideProxyHTTPS -Value ""                 -Force
+$data | Add-Member -MemberType NoteProperty -Name ContainersProxyExclude       -Value ""                 -Force
 
 $data | ConvertTo-Json -Depth 10 | Set-Content $settingsStore -Encoding UTF8
 

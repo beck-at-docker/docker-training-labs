@@ -53,15 +53,16 @@ function Test-FixedState {
         Log-Fail "Not signed in to Docker Hub - fix the proxy then sign in and re-run --check"
     }
 
-    # Proxy config check: verify settings-store.json no longer has the bogus
-    # proxy address. A valid fix is either:
-    #   a) ProxyHTTPMode back to "system" (proxy removed entirely)
-    #   b) ProxyHTTP pointing to a real, reachable proxy
-    # Either way, 192.0.2.1 must not appear in the proxy fields.
+    # Proxy config check: verify the Override fields no longer have the bogus
+    # proxy address. Docker Desktop uses a two-field pattern: ProxyHTTP/HTTPS is
+    # the UI display value; OverrideProxyHTTP/HTTPS is what DD actually routes
+    # traffic through. We check the Override fields because clearing only
+    # ProxyHTTP/HTTPS is insufficient - the active proxy remains until the
+    # Override fields are also cleared.
     Log-Test "settings-store.json proxy configuration is valid"
     if (Test-Path $settingsStore) {
         $data        = Get-Content $settingsStore -Raw | ConvertFrom-Json
-        $proxyFields = @("ProxyHTTP", "ProxyHTTPS", "ContainersProxyHTTP", "ContainersProxyHTTPS")
+        $proxyFields = @("OverrideProxyHTTP", "OverrideProxyHTTPS", "ContainersOverrideProxyHTTP", "ContainersOverrideProxyHTTPS")
         $hasBogus    = $false
         foreach ($field in $proxyFields) {
             if ($data.$field -and $data.$field -match "192\.0\.2") {
@@ -90,7 +91,7 @@ function Test-FixedState {
         if ($mode -ne "manual") {
             Log-Pass "Proxy is not in manual mode - no exclusion list to check"
         } else {
-            $proxyAddr  = $data.ProxyHTTP
+            $proxyAddr  = $data.OverrideProxyHTTP
             $exclude    = $data.ProxyExclude
             $bogusProxy = $proxyAddr -match "192\.0\.2"
             $authHosts  = @("hub.docker.com", "login.docker.com", "id.docker.com")

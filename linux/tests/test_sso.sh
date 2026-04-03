@@ -62,7 +62,7 @@ test_fixed_state() {
 import json, sys
 data = json.load(open('$DESKTOP_SETTINGS'))
 bogus = '192.0.2'
-fields = ['ProxyHTTP', 'ProxyHTTPS', 'ContainersProxyHTTP', 'ContainersProxyHTTPS']
+fields = ['OverrideProxyHTTP', 'OverrideProxyHTTPS', 'ContainersOverrideProxyHTTP', 'ContainersOverrideProxyHTTPS']
 bad = [f for f in fields if bogus in str(data.get(f, ''))]
 sys.exit(1 if bad else 0)
 " 2>/dev/null; then
@@ -101,7 +101,7 @@ mode = data.get('ProxyHTTPMode', 'system')
 if mode != 'manual':
     sys.exit(0)
 
-proxy_addr = data.get('ProxyHTTP', '')
+proxy_addr = data.get('OverrideProxyHTTP', '')
 exclude = data.get('ProxyExclude', '')
 bogus_in_proxy = '192.0.2' in proxy_addr
 auth_hosts = ['hub.docker.com', 'login.docker.com', 'id.docker.com']

@@ -90,14 +90,23 @@ with open(path, 'r') as f:
 bogus_proxy = "http://192.0.2.1:8080"
 registry_exclude = "$REGISTRY_EXCLUDE"
 
-data['ProxyHTTPMode']            = 'manual'
-data['ProxyHTTP']                = bogus_proxy
-data['ProxyHTTPS']               = bogus_proxy
-data['ProxyExclude']             = registry_exclude
-data['ContainersProxyHTTPMode']  = 'system'
-data['ContainersProxyHTTP']      = ''
-data['ContainersProxyHTTPS']     = ''
-data['ContainersProxyExclude']   = ''
+# NOTE: Docker Desktop uses a two-field pattern for manual proxy config.
+# ProxyHTTP/HTTPS is the address shown in the UI (display/remembered value);
+# Docker Desktop only routes traffic through OverrideProxyHTTP/HTTPS.
+# Without setting the Override fields, DD falls back to system proxy on
+# restart and the break has no effect.
+data['ProxyHTTPMode']                = 'manual'
+data['ProxyHTTP']                    = bogus_proxy  # UI display / remembered value
+data['ProxyHTTPS']                   = bogus_proxy  # UI display / remembered value
+data['OverrideProxyHTTP']            = bogus_proxy  # active value DD routes traffic through
+data['OverrideProxyHTTPS']           = bogus_proxy  # active value DD routes traffic through
+data['ProxyExclude']                 = registry_exclude
+data['ContainersProxyHTTPMode']      = 'system'
+data['ContainersProxyHTTP']          = ''
+data['ContainersProxyHTTPS']         = ''
+data['ContainersOverrideProxyHTTP']  = ''
+data['ContainersOverrideProxyHTTPS'] = ''
+data['ContainersProxyExclude']       = ''
 
 with open(path, 'w') as f:
     json.dump(data, f, indent=2)
