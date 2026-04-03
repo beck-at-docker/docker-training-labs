@@ -77,10 +77,17 @@ done
 # Docker Desktop calls to complete the SSO token exchange.
 #
 # Keys written:
-#   ProxyHTTPMode        - switched to "manual"
-#   ProxyHTTP / HTTPS    - bogus non-routable proxy address
-#   ProxyExclude         - registry hosts only, auth endpoints absent
-#   ContainersProxy*     - left at system so containers are unaffected
+#   ProxyHTTPMode              - switched to "manual"
+#   ProxyHTTP / HTTPS          - bogus non-routable proxy address (display/remembered value)
+#   OverrideProxyHTTP / HTTPS  - bogus non-routable proxy address (the value DD actually routes through)
+#   ProxyExclude               - registry hosts only, auth endpoints absent
+#   ContainersProxy*           - left at system so containers are unaffected
+#
+# NOTE: Docker Desktop uses a two-field pattern for manual proxy config.
+# ProxyHTTP/HTTPS is the address shown and remembered in the UI; Docker
+# Desktop only routes traffic through OverrideProxyHTTP/HTTPS. Without
+# setting the Override fields, DD falls back to system proxy on restart
+# and the break has no effect.
 # ------------------------------------------------------------------
 cp "$SETTINGS_STORE" "${SETTINGS_STORE}.backup-sso-${BACKUP_TIMESTAMP}"
 
@@ -103,14 +110,18 @@ registry_exclude = (
     "auth.docker.io"
 )
 
-data['ProxyHTTPMode']            = 'manual'
-data['ProxyHTTP']                = bogus_proxy
-data['ProxyHTTPS']               = bogus_proxy
-data['ProxyExclude']             = registry_exclude
-data['ContainersProxyHTTPMode']  = 'system'
-data['ContainersProxyHTTP']      = ''
-data['ContainersProxyHTTPS']     = ''
-data['ContainersProxyExclude']   = ''
+data['ProxyHTTPMode']                = 'manual'
+data['ProxyHTTP']                    = bogus_proxy  # UI display / remembered value
+data['ProxyHTTPS']                   = bogus_proxy  # UI display / remembered value
+data['OverrideProxyHTTP']            = bogus_proxy  # active value DD routes traffic through
+data['OverrideProxyHTTPS']           = bogus_proxy  # active value DD routes traffic through
+data['ProxyExclude']                 = registry_exclude
+data['ContainersProxyHTTPMode']      = 'system'
+data['ContainersProxyHTTP']          = ''
+data['ContainersProxyHTTPS']         = ''
+data['ContainersOverrideProxyHTTP']  = ''
+data['ContainersOverrideProxyHTTPS'] = ''
+data['ContainersProxyExclude']       = ''
 
 with open(path, 'w') as f:
     json.dump(data, f, indent=2)

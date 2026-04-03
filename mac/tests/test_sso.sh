@@ -55,17 +55,23 @@ test_fixed_state() {
     fi
 
     # Proxy config check: verify settings-store.json no longer has the bogus
-    # proxy address. A valid fix is either:
-    #   a) ProxyHTTPMode back to "system" (proxy removed entirely)
-    #   b) ProxyHTTP pointing to a real, reachable proxy
-    # Either way, 192.0.2.1 must not appear in the proxy fields.
+    # proxy address in the Override fields. Docker Desktop uses a two-field
+    # pattern: ProxyHTTP/HTTPS is the UI display value; OverrideProxyHTTP/HTTPS
+    # is what DD actually routes traffic through. We check the Override fields
+    # because clearing only ProxyHTTP/HTTPS is insufficient - the active proxy
+    # remains in effect until the Override fields are also cleared.
+    #
+    # A valid fix is either:
+    #   a) ProxyHTTPMode back to "system" (proxy disabled)
+    #   b) OverrideProxyHTTP/HTTPS pointing to a real, reachable proxy
+    # Either way, 192.0.2.1 must not appear in the Override proxy fields.
     log_test "settings-store.json proxy configuration is valid"
     if [ -f "$SETTINGS_STORE" ]; then
         if python3 -c "
 import json, sys
 data = json.load(open('$SETTINGS_STORE'))
 bogus = '192.0.2'
-fields = ['ProxyHTTP', 'ProxyHTTPS', 'ContainersProxyHTTP', 'ContainersProxyHTTPS']
+fields = ['OverrideProxyHTTP', 'OverrideProxyHTTPS', 'ContainersOverrideProxyHTTP', 'ContainersOverrideProxyHTTPS']
 bad = [f for f in fields if bogus in str(data.get(f, ''))]
 sys.exit(1 if bad else 0)
 " 2>/dev/null; then
@@ -97,7 +103,7 @@ if mode != 'manual':
 # complete. If none are excluded, auth traffic will flow through whatever
 # proxy is configured - which may or may not be valid. We pass this check
 # unless we can confirm 192.0.2.x is the proxy AND auth is not excluded.
-proxy_addr = data.get('ProxyHTTP', '')
+proxy_addr = data.get('OverrideProxyHTTP', '')
 exclude = data.get('ProxyExclude', '')
 
 bogus_in_proxy = '192.0.2' in proxy_addr
