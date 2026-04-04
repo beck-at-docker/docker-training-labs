@@ -42,7 +42,9 @@ function Test-FixedState {
     Log-Test "settings-store.json proxy configuration is valid"
     if (Test-Path $settingsStore) {
         $data = Get-Content $settingsStore -Raw | ConvertFrom-Json
-        $proxyFields = @("ProxyHTTP", "ProxyHTTPS", "ContainersProxyHTTP", "ContainersProxyHTTPS")
+        $proxyFields = @("ProxyHTTP", "ProxyHTTPS", "OverrideProxyHTTP", "OverrideProxyHTTPS",
+                          "ContainersProxyHTTP", "ContainersProxyHTTPS",
+                          "ContainersOverrideProxyHTTP", "ContainersOverrideProxyHTTPS")
         $hasBogus = $false
         foreach ($field in $proxyFields) {
             $val = $data.$field

@@ -48,7 +48,9 @@ function Reset-ProxyKeys {
     $data = Get-Content $Path -Raw | ConvertFrom-Json
 
     foreach ($key in @("ProxyHTTP", "ProxyHTTPS", "ProxyExclude",
-                       "ContainersProxyHTTP", "ContainersProxyHTTPS", "ContainersProxyExclude")) {
+                       "OverrideProxyHTTP", "OverrideProxyHTTPS",
+                       "ContainersProxyHTTP", "ContainersProxyHTTPS", "ContainersProxyExclude",
+                       "ContainersOverrideProxyHTTP", "ContainersOverrideProxyHTTPS")) {
         $data.PSObject.Properties.Remove($key)
     }
 

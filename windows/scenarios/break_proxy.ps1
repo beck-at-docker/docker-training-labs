@@ -45,20 +45,30 @@ if (-not (Test-Path $settingsStore)) {
 # Read the existing JSON, merge in the broken proxy keys, and write it
 # back. Merging (rather than replacing) preserves all other settings so
 # Docker Desktop starts cleanly after the restart.
+#
+# NOTE: Docker Desktop uses a two-field pattern for manual proxy config.
+# ProxyHTTP/HTTPS is the address shown in the UI (display/remembered value);
+# Docker Desktop only routes traffic through OverrideProxyHTTP/HTTPS.
+# Without setting the Override fields, DD falls back to system proxy on
+# restart and the break has no effect.
 # ------------------------------------------------------------------
 $backupPath = "${settingsStore}.backup-proxy-${timestamp}"
 Copy-Item $settingsStore $backupPath
 
 $data = Get-Content $settingsStore -Raw | ConvertFrom-Json
 
-$data | Add-Member -MemberType NoteProperty -Name ProxyHTTPMode           -Value "manual"      -Force
-$data | Add-Member -MemberType NoteProperty -Name ProxyHTTP               -Value $bogusProxy   -Force
-$data | Add-Member -MemberType NoteProperty -Name ProxyHTTPS              -Value $bogusProxy   -Force
-$data | Add-Member -MemberType NoteProperty -Name ProxyExclude            -Value ""            -Force
-$data | Add-Member -MemberType NoteProperty -Name ContainersProxyHTTPMode -Value "manual"      -Force
-$data | Add-Member -MemberType NoteProperty -Name ContainersProxyHTTP     -Value $bogusProxy   -Force
-$data | Add-Member -MemberType NoteProperty -Name ContainersProxyHTTPS    -Value $bogusProxy   -Force
-$data | Add-Member -MemberType NoteProperty -Name ContainersProxyExclude  -Value ""            -Force
+$data | Add-Member -MemberType NoteProperty -Name ProxyHTTPMode                -Value "manual"    -Force
+$data | Add-Member -MemberType NoteProperty -Name ProxyHTTP                    -Value $bogusProxy -Force  # UI display / remembered value
+$data | Add-Member -MemberType NoteProperty -Name ProxyHTTPS                   -Value $bogusProxy -Force  # UI display / remembered value
+$data | Add-Member -MemberType NoteProperty -Name OverrideProxyHTTP            -Value $bogusProxy -Force  # active value DD routes traffic through
+$data | Add-Member -MemberType NoteProperty -Name OverrideProxyHTTPS           -Value $bogusProxy -Force  # active value DD routes traffic through
+$data | Add-Member -MemberType NoteProperty -Name ProxyExclude                 -Value ""          -Force
+$data | Add-Member -MemberType NoteProperty -Name ContainersProxyHTTPMode      -Value "manual"    -Force
+$data | Add-Member -MemberType NoteProperty -Name ContainersProxyHTTP          -Value $bogusProxy -Force  # UI display / remembered value
+$data | Add-Member -MemberType NoteProperty -Name ContainersProxyHTTPS         -Value $bogusProxy -Force  # UI display / remembered value
+$data | Add-Member -MemberType NoteProperty -Name ContainersOverrideProxyHTTP  -Value $bogusProxy -Force  # active value DD routes traffic through
+$data | Add-Member -MemberType NoteProperty -Name ContainersOverrideProxyHTTPS -Value $bogusProxy -Force  # active value DD routes traffic through
+$data | Add-Member -MemberType NoteProperty -Name ContainersProxyExclude       -Value ""          -Force
 
 $data | ConvertTo-Json -Depth 10 | Set-Content $settingsStore -Encoding UTF8
 
