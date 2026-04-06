@@ -277,9 +277,8 @@ function Fix-ProxyFail {
 #
 # break_sso.ps1 sets a ProxyExclude list that covers the registry but not
 # the SSO login endpoints, causing auth to fail while pulls still work.
-# Restores from backup or resets proxy keys to system mode.
-#
-# MUST be called after Stop-DockerDesktop.
+# Restores from backup or resets proxy keys to system mode, then calls
+# the backend pipe API to apply the change to the live daemon immediately.
 function Fix-Sso {
     Write-Host "Removing broken SSO proxy configuration..."
 
@@ -303,9 +302,35 @@ function Fix-Sso {
         Write-Host "  Settings store not found - nothing to fix"
     }
 
+    # Apply the restored settings to the live daemon via the backend pipe API.
+    # This propagates the change immediately without requiring a Docker restart.
+    Write-Host ""
+    Write-Host "Applying restored proxy settings to live daemon..."
+    $apiResult = Invoke-DockerBackendAPI -Payload @{
+        vm = @{
+            proxy = @{
+                mode    = @{ value = "system" }
+                http    = @{ value = "" }
+                https   = @{ value = "" }
+                exclude = @{ value = "" }
+            }
+            containersProxy = @{
+                mode    = @{ value = "system" }
+                http    = @{ value = "" }
+                https   = @{ value = "" }
+                exclude = @{ value = "" }
+            }
+        }
+    }
+    if ($apiResult) {
+        Write-Host "  API call succeeded - proxy reset to system mode"
+    } else {
+        Write-Host "  API call failed - a Docker Desktop restart may be required"
+    }
+
     Write-Host ""
     Write-Host "SSO proxy configuration cleaned up"
-    Write-Host "NOTE: Sign back in manually after Docker Desktop restarts: docker login"
+    Write-Host "NOTE: Sign back in manually after proxy is cleared: docker login"
 }
 
 # Fix-AuthConfig - Remove the corrupt allowedOrgs value from settings-store.json.

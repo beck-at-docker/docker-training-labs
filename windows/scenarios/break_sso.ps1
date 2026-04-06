@@ -5,30 +5,35 @@
 # root cause was a manually configured proxy that blocked Docker's auth/identity
 # endpoints while leaving registry traffic accessible via ProxyExclude.
 #
-# On Windows, Docker Desktop stores its proxy config in:
-#   $env:APPDATA\Docker\settings-store.json
+# On Windows, Docker Desktop manages proxy config through its settings store at
+# $env:APPDATA\Docker\settings-store.json. However, on Business/Enterprise accounts
+# the backend fetches admin policy from hub.docker.com on every cold start and
+# overrides settings written to that file while Docker is stopped.
+#
+# This script therefore applies proxy settings while Docker is running, via the
+# backend named pipe API (\\.\.pipe\dockerBackendApiServer). Changes propagate
+# to the live daemon immediately with no restart required.
 #
 # The break creates two conditions:
 #
-#   1. settings-store.json: sets proxy mode to "manual" with a non-routable
-#      address (192.0.2.1, RFC 5737 TEST-NET). The ProxyExclude list covers
-#      Docker registry and token-service hostnames, leaving hub.docker.com,
-#      login.docker.com, and id.docker.com exposed to the bogus proxy.
+#   1. Backend pipe API: sets proxy mode to "manual" with a non-routable address
+#      (192.0.2.1, RFC 5737 TEST-NET). The exclude list covers Docker registry
+#      and token-service hostnames, leaving hub.docker.com, login.docker.com,
+#      and id.docker.com exposed to the bogus proxy.
 #
 #      Result: anonymous image pulls succeed (registry + auth.docker.io bypass
 #      the proxy), but SSO completion fails because Docker Desktop's backend
 #      callback to hub.docker.com is blocked.
 #
-#   2. docker logout: removes stored Docker Hub credentials, placing Docker
-#      Desktop in a signed-out state. When the trainee attempts SSO, the browser
-#      auth succeeds but the token exchange with hub.docker.com goes through the
-#      bogus proxy and fails, producing an immediate sign-out loop.
+#   2. docker logout: removes stored Docker Hub credentials so the trainee is
+#      forced to attempt sign-in and encounter the SSO loop.
 #
-# Docker Desktop is restarted after the settings change.
+# settings-store.json is backed up before the API call so Fix-Sso in
+# lib\fix.ps1 can restore it.
 
-$settingsStore = "$env:APPDATA\Docker\settings-store.json"
-$bogusProxy    = "http://192.0.2.1:8080"
-$timestamp     = Get-Date -Format "yyyyMMdd_HHmmss"
+$settingsStore   = "$env:APPDATA\Docker\settings-store.json"
+$bogusProxy      = "http://192.0.2.1:8080"
+$timestamp       = Get-Date -Format "yyyyMMdd_HHmmss"
 
 # Exclude Docker registry and token-service endpoints so pulls still work.
 # hub.docker.com, login.docker.com, and id.docker.com are intentionally
@@ -52,91 +57,117 @@ if (-not (Test-Path $settingsStore)) {
 }
 
 # ------------------------------------------------------------------
-# Method 1: Corrupt the Docker Desktop settings store with an asymmetric
-#           proxy configuration.
-#
-# Merge proxy keys into the existing JSON to preserve all other settings.
-# Add-Member -Force is used because direct property assignment on
-# ConvertFrom-Json objects is unreliable in PS5.1.
+# Backup current settings BEFORE the break is applied.
+# Fix-Sso in lib\fix.ps1 restores from this backup.
 # ------------------------------------------------------------------
 $backupPath = "${settingsStore}.backup-sso-${timestamp}"
 Copy-Item $settingsStore $backupPath
+Write-Host "  Settings store backed up"
 
-$data = Get-Content $settingsStore -Raw | ConvertFrom-Json
+# ------------------------------------------------------------------
+# Method 1: Apply asymmetric proxy settings via the Docker Desktop
+#           backend pipe API.
+#
+# The API uses a nested schema under vm.proxy and vm.containersProxy
+# with {value, locked} objects - different from the flat PascalCase
+# keys in settings-store.json. Sending flat keys returns HTTP 500.
+#
+# The ProxyExclude covers registry hosts so pulls still work, but
+# omits hub.docker.com, login.docker.com, and id.docker.com so the
+# SSO token exchange is blocked. ContainersProxy is left at system
+# so container internet access is unaffected.
+#
+# Changes take effect immediately; no restart required.
+# ------------------------------------------------------------------
+Write-Host ""
+Write-Host "Applying proxy settings via Docker Desktop backend API..."
 
-# NOTE: Docker Desktop uses a two-field pattern for manual proxy config.
-# ProxyHTTP/HTTPS is the address shown in the UI (display/remembered value);
-# Docker Desktop only routes traffic through OverrideProxyHTTP/HTTPS.
-# Without setting the Override fields, DD falls back to system proxy on
-# restart and the break has no effect.
-$data | Add-Member -MemberType NoteProperty -Name ProxyHTTPMode                -Value "manual"          -Force
-$data | Add-Member -MemberType NoteProperty -Name ProxyHTTP                    -Value $bogusProxy        -Force  # UI display / remembered value
-$data | Add-Member -MemberType NoteProperty -Name ProxyHTTPS                   -Value $bogusProxy        -Force  # UI display / remembered value
-$data | Add-Member -MemberType NoteProperty -Name OverrideProxyHTTP            -Value $bogusProxy        -Force  # active value DD routes traffic through
-$data | Add-Member -MemberType NoteProperty -Name OverrideProxyHTTPS           -Value $bogusProxy        -Force  # active value DD routes traffic through
-$data | Add-Member -MemberType NoteProperty -Name ProxyExclude                 -Value $registryExclude   -Force
-$data | Add-Member -MemberType NoteProperty -Name ContainersProxyHTTPMode      -Value "system"           -Force
-$data | Add-Member -MemberType NoteProperty -Name ContainersProxyHTTP          -Value ""                 -Force
-$data | Add-Member -MemberType NoteProperty -Name ContainersProxyHTTPS         -Value ""                 -Force
-$data | Add-Member -MemberType NoteProperty -Name ContainersOverrideProxyHTTP  -Value ""                 -Force
-$data | Add-Member -MemberType NoteProperty -Name ContainersOverrideProxyHTTPS -Value ""                 -Force
-$data | Add-Member -MemberType NoteProperty -Name ContainersProxyExclude       -Value ""                 -Force
+$payload = (@{
+    vm = @{
+        proxy = @{
+            mode    = @{ value = "manual" }
+            http    = @{ value = $bogusProxy }
+            https   = @{ value = $bogusProxy }
+            exclude = @{ value = $registryExclude }
+        }
+        containersProxy = @{
+            mode    = @{ value = "system" }
+            http    = @{ value = "" }
+            https   = @{ value = "" }
+            exclude = @{ value = "" }
+        }
+    }
+} | ConvertTo-Json -Depth 10 -Compress)
 
-$data | ConvertTo-Json -Depth 10 | Set-Content $settingsStore -Encoding UTF8
+try {
+    $pipe = New-Object System.IO.Pipes.NamedPipeClientStream(
+        ".", "dockerBackendApiServer",
+        [System.IO.Pipes.PipeDirection]::InOut,
+        [System.IO.Pipes.PipeOptions]::None)
+    $pipe.Connect(5000)
 
-Write-Host "  Settings store updated"
+    $bytes   = [System.Text.Encoding]::UTF8.GetBytes($payload)
+    $request = "POST /app/settings HTTP/1.0`r`nContent-Type: application/json`r`nContent-Length: $($bytes.Length)`r`n`r`n$payload"
+    $reqBytes = [System.Text.Encoding]::UTF8.GetBytes($request)
+    $pipe.Write($reqBytes, 0, $reqBytes.Length)
+    $pipe.Flush()
+    $pipe.WaitForPipeDrain()
+
+    $reader   = New-Object System.IO.StreamReader($pipe)
+    $response = $reader.ReadToEnd()
+    $pipe.Close()
+
+    $statusLine = ($response -split "`r`n")[0]
+    if ($statusLine -match "200|204") {
+        Write-Host "  API call succeeded ($($statusLine.Trim()))"
+    } else {
+        Write-Host "  Error: API returned unexpected response:"
+        Write-Host "  $statusLine"
+        exit 1
+    }
+} catch {
+    Write-Host "  Error: Could not connect to Docker Desktop backend pipe"
+    Write-Host "  $_"
+    exit 1
+}
 
 # ------------------------------------------------------------------
 # Method 2: Sign out of Docker Hub to force the sign-in prompt.
 #
 # docker logout removes the stored credential for the default registry
-# via the Windows credential helper. After Docker Desktop restarts with
-# the broken proxy config, the trainee will be prompted to sign in. Their
-# SSO attempt will loop because hub.docker.com is blocked.
+# via the Windows credential helper. The trainee will be prompted to
+# sign in and encounter the SSO loop because hub.docker.com is blocked.
 # ------------------------------------------------------------------
 docker logout 2>&1 | Out-Null
 Write-Host "  Docker Hub credentials cleared"
 
 # ------------------------------------------------------------------
-# Restart Docker Desktop so it reads the updated settings-store.json.
+# Wait for the break to become observable.
+#
+# Verify two conditions: the bogus proxy is active in docker info,
+# AND image pulls still work (confirming the asymmetric exclude is
+# correctly applied).
 # ------------------------------------------------------------------
 Write-Host ""
-Write-Host "Restarting Docker Desktop to apply proxy settings..."
-
-$dockerProcess = Get-Process "Docker Desktop" -ErrorAction SilentlyContinue
-if ($dockerProcess) {
-    $dockerProcess | Stop-Process -Force
-    Start-Sleep -Seconds 2
-}
-
-$waited = 0
-while ((Get-Process "Docker Desktop" -ErrorAction SilentlyContinue) -and $waited -lt 15) {
-    Start-Sleep -Seconds 1
-    $waited++
-}
-
-$dockerExe = "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe"
-if (Test-Path $dockerExe) {
-    Start-Process $dockerExe
-} else {
-    Write-Host "  Warning: Could not find Docker Desktop.exe - please start it manually"
-}
-
-Write-Host "Docker Desktop must be started manually..."
-Write-Host "  Waiting for Docker Desktop to restart..."
-$ready = $false
-for ($i = 0; $i -lt 30; $i++) {
-    Start-Sleep -Seconds 2
-    docker info 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) {
-        $ready = $true
-        break
+Write-Host "  Waiting for proxy settings to take effect..."
+$breakActive = $false
+for ($i = 0; $i -lt 15; $i++) {
+    $info = docker info 2>&1
+    if ($info -match [regex]::Escape("192.0.2")) {
+        # Proxy is live - verify pulls still work through the exclude list
+        docker pull alpine:latest 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            $breakActive = $true
+            break
+        }
     }
+    Start-Sleep -Seconds 2
 }
 
-if (-not $ready) {
-    Write-Host "  Warning: Docker Desktop did not come back within 60s"
-    Write-Host "  Wait a moment before attempting to sign in"
+if (-not $breakActive) {
+    Write-Host "  Warning: could not confirm break state after 30s"
+    Write-Host "  Settings were applied via the API - the break may still be active."
+    Write-Host "  Verify: docker info should show 192.0.2.1, docker pull should succeed"
 }
 
 Write-Host ""
