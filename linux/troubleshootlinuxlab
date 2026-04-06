@@ -138,8 +138,6 @@ show_main_menu() {
         echo ""
         echo "8. View my report card"
         echo ""
-        echo "--- Trainer Tools ---"
-        echo "9. Fix All"
         echo "0. Exit"
     fi
 
@@ -843,18 +841,6 @@ show_report_card() {
 }
 
 # ------------------------------------------------------------------
-# run_fix_all - Trainer utility: run all fix scripts with a single restart
-# ------------------------------------------------------------------
-run_fix_all() {
-    show_banner
-    echo -e "${YELLOW}Fix All - Trainer Mode${NC}"
-    echo ""
-    bash "$INSTALL_DIR/scenarios/all.sh"
-    echo ""
-    read -p "Press enter to continue..."
-}
-
-# ------------------------------------------------------------------
 # abandon_lab
 # ------------------------------------------------------------------
 abandon_lab() {
@@ -1005,9 +991,6 @@ main() {
                 8)
                     show_report_card
                     read -p "Press enter to continue..."
-                    ;;
-                9)
-                    run_fix_all
                     ;;
                 0)
                     echo "Goodbye!"
