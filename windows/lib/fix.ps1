@@ -19,7 +19,45 @@ $settingsStore = "$env:APPDATA\Docker\settings-store.json"
 $dockerExe     = "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe"
 $jobIdFile     = "$env:TEMP\port_squatter_8080_job.txt"
 
-# Stop-DockerDesktop - Force-stop Docker Desktop and wait for the process to exit.
+# Invoke-DockerBackendAPI - Send a POST request to the Docker Desktop
+# backend named pipe API. Used by fix functions to apply settings to
+# the live daemon without requiring a Docker Desktop restart.
+#
+# Parameters:
+#   Payload - hashtable to be serialised as JSON and sent as the body
+#
+# Returns $true on HTTP 200/204, $false on failure.
+function Invoke-DockerBackendAPI {
+    param([hashtable]$Payload)
+
+    $json = $Payload | ConvertTo-Json -Depth 10 -Compress
+    try {
+        $pipe = New-Object System.IO.Pipes.NamedPipeClientStream(
+            ".", "dockerBackendApiServer",
+            [System.IO.Pipes.PipeDirection]::InOut,
+            [System.IO.Pipes.PipeOptions]::None)
+        $pipe.Connect(5000)
+
+        $bytes   = [System.Text.Encoding]::UTF8.GetBytes($json)
+        $request = "POST /app/settings HTTP/1.0`r`nContent-Type: application/json`r`nContent-Length: $($bytes.Length)`r`n`r`n$json"
+        $reqBytes = [System.Text.Encoding]::UTF8.GetBytes($request)
+        $pipe.Write($reqBytes, 0, $reqBytes.Length)
+        $pipe.Flush()
+        $pipe.WaitForPipeDrain()
+
+        $reader   = New-Object System.IO.StreamReader($pipe)
+        $response = $reader.ReadToEnd()
+        $pipe.Close()
+
+        $statusLine = ($response -split "`r`n")[0]
+        return $statusLine -match "200|204"
+    } catch {
+        Write-Host "  Warning: Could not connect to Docker Desktop backend pipe: $_"
+        return $false
+    }
+}
+
+
 #
 # Uses Stop-Process -Force to kill the process immediately, then polls for up
 # to ~15 seconds. Unlike a graceful quit, force-kill prevents Docker from
@@ -130,10 +168,10 @@ function Fix-Dns {
 # clear proxy environment variables.
 #
 # Restores from a scenario-specific backup if one exists; otherwise resets
-# proxy keys to system mode. Also clears User-scope and Process-scope proxy
-# environment variables injected by break_proxy.ps1.
-#
-# MUST be called after Stop-DockerDesktop.
+# proxy keys to system mode. Then calls the backend pipe API to apply the
+# restored settings to the live daemon immediately - no restart required.
+# Also clears User-scope and Process-scope proxy environment variables
+# injected by break_proxy.ps1.
 function Fix-Proxy {
     Write-Host "Removing broken proxy configuration..."
 
@@ -155,6 +193,32 @@ function Fix-Proxy {
         }
     } else {
         Write-Host "  Settings store not found - nothing to fix"
+    }
+
+    # Apply the restored settings to the live daemon via the backend pipe API.
+    # This propagates the change immediately without requiring a Docker restart.
+    Write-Host ""
+    Write-Host "Applying restored proxy settings to live daemon..."
+    $apiResult = Invoke-DockerBackendAPI -Payload @{
+        vm = @{
+            proxy = @{
+                mode    = @{ value = "system" }
+                http    = @{ value = "" }
+                https   = @{ value = "" }
+                exclude = @{ value = "" }
+            }
+            containersProxy = @{
+                mode    = @{ value = "system" }
+                http    = @{ value = "" }
+                https   = @{ value = "" }
+                exclude = @{ value = "" }
+            }
+        }
+    }
+    if ($apiResult) {
+        Write-Host "  API call succeeded - proxy reset to system mode"
+    } else {
+        Write-Host "  API call failed - a Docker Desktop restart may be required"
     }
 
     Write-Host ""

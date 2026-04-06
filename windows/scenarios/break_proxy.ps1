@@ -1,23 +1,30 @@
 # break_proxy.ps1 - Corrupts proxy settings on Windows Docker Desktop
 #
-# On Windows, Docker Desktop ignores daemon.json proxy settings and manages
-# proxy config through its own settings store at:
-#   $env:APPDATA\Docker\settings-store.json
+# On Windows, Docker Desktop manages proxy config through its settings
+# store at $env:APPDATA\Docker\settings-store.json. However, on
+# Business/Enterprise accounts the backend fetches admin policy from
+# hub.docker.com on every cold start and can override settings written
+# to that file while Docker is stopped.
 #
-# This script targets that file directly and also injects bogus proxy
-# environment variables into the User-scope registry (HKCU:\Environment)
-# to simulate layered misconfiguration.
+# This script therefore applies the proxy settings while Docker is
+# running, via the backend named pipe API (\\.\.pipe\dockerBackendApiServer).
+# This is the same code path the Docker Desktop UI uses, so the change
+# propagates to the live daemon immediately with no restart required.
 #
-# Two mechanisms:
-#   1. settings-store.json: switches proxy mode to "manual" and sets a
-#      non-routable address (192.0.2.1, RFC 5737 TEST-NET). Docker Desktop
-#      must be restarted to read the change, which this script handles.
+# Two mechanisms are used to simulate layered misconfiguration:
+#
+#   1. Backend pipe API: sets proxy mode to "manual" and points both
+#      daemon-level and container-level proxy to 192.0.2.1:8080, an
+#      RFC 5737 TEST-NET address that silently drops all traffic.
+#      The API uses a nested schema (vm.proxy / vm.containersProxy)
+#      that differs from the flat key names in settings-store.json.
 #
 #   2. User-scope env vars: HTTP_PROXY and HTTPS_PROXY written to
 #      HKCU:\Environment via [System.Environment]::SetEnvironmentVariable,
 #      so they persist across new terminals.
 #
-# The settings store is backed up before modification.
+# settings-store.json is backed up before the API call so Fix-Proxy
+# in lib\fix.ps1 can restore it.
 
 $settingsStore = "$env:APPDATA\Docker\settings-store.json"
 $bogusProxy    = "http://192.0.2.1:8080"
@@ -40,39 +47,75 @@ if (-not (Test-Path $settingsStore)) {
 }
 
 # ------------------------------------------------------------------
-# Method 1: Corrupt the Docker Desktop settings store
-#
-# Read the existing JSON, merge in the broken proxy keys, and write it
-# back. Merging (rather than replacing) preserves all other settings so
-# Docker Desktop starts cleanly after the restart.
-#
-# NOTE: Docker Desktop uses a two-field pattern for manual proxy config.
-# ProxyHTTP/HTTPS is the address shown in the UI (display/remembered value);
-# Docker Desktop only routes traffic through OverrideProxyHTTP/HTTPS.
-# Without setting the Override fields, DD falls back to system proxy on
-# restart and the break has no effect.
+# Backup current settings BEFORE the break is applied.
+# Fix-Proxy in lib\fix.ps1 restores from this backup.
 # ------------------------------------------------------------------
 $backupPath = "${settingsStore}.backup-proxy-${timestamp}"
 Copy-Item $settingsStore $backupPath
+Write-Host "  Settings store backed up"
 
-$data = Get-Content $settingsStore -Raw | ConvertFrom-Json
+# ------------------------------------------------------------------
+# Method 1: Apply proxy settings via the Docker Desktop backend pipe API.
+#
+# The API uses a nested schema under vm.proxy and vm.containersProxy
+# with {value, locked} objects - different from the flat PascalCase
+# keys in settings-store.json. Sending flat keys returns HTTP 500.
+#
+# Changes take effect immediately in the running daemon; no restart
+# is required.
+# ------------------------------------------------------------------
+Write-Host ""
+Write-Host "Applying proxy settings via Docker Desktop backend API..."
 
-$data | Add-Member -MemberType NoteProperty -Name ProxyHTTPMode                -Value "manual"    -Force
-$data | Add-Member -MemberType NoteProperty -Name ProxyHTTP                    -Value $bogusProxy -Force  # UI display / remembered value
-$data | Add-Member -MemberType NoteProperty -Name ProxyHTTPS                   -Value $bogusProxy -Force  # UI display / remembered value
-$data | Add-Member -MemberType NoteProperty -Name OverrideProxyHTTP            -Value $bogusProxy -Force  # active value DD routes traffic through
-$data | Add-Member -MemberType NoteProperty -Name OverrideProxyHTTPS           -Value $bogusProxy -Force  # active value DD routes traffic through
-$data | Add-Member -MemberType NoteProperty -Name ProxyExclude                 -Value ""          -Force
-$data | Add-Member -MemberType NoteProperty -Name ContainersProxyHTTPMode      -Value "manual"    -Force
-$data | Add-Member -MemberType NoteProperty -Name ContainersProxyHTTP          -Value $bogusProxy -Force  # UI display / remembered value
-$data | Add-Member -MemberType NoteProperty -Name ContainersProxyHTTPS         -Value $bogusProxy -Force  # UI display / remembered value
-$data | Add-Member -MemberType NoteProperty -Name ContainersOverrideProxyHTTP  -Value $bogusProxy -Force  # active value DD routes traffic through
-$data | Add-Member -MemberType NoteProperty -Name ContainersOverrideProxyHTTPS -Value $bogusProxy -Force  # active value DD routes traffic through
-$data | Add-Member -MemberType NoteProperty -Name ContainersProxyExclude       -Value ""          -Force
+$payload = (@{
+    vm = @{
+        proxy = @{
+            mode    = @{ value = "manual" }
+            http    = @{ value = $bogusProxy }
+            https   = @{ value = $bogusProxy }
+            exclude = @{ value = "" }
+        }
+        containersProxy = @{
+            mode    = @{ value = "manual" }
+            http    = @{ value = $bogusProxy }
+            https   = @{ value = $bogusProxy }
+            exclude = @{ value = "" }
+        }
+    }
+} | ConvertTo-Json -Depth 10 -Compress)
 
-$data | ConvertTo-Json -Depth 10 | Set-Content $settingsStore -Encoding UTF8
+try {
+    $pipe = New-Object System.IO.Pipes.NamedPipeClientStream(
+        ".", "dockerBackendApiServer",
+        [System.IO.Pipes.PipeDirection]::InOut,
+        [System.IO.Pipes.PipeOptions]::None)
+    $pipe.Connect(5000)
 
-Write-Host "  Settings store updated"
+    $bytes   = [System.Text.Encoding]::UTF8.GetBytes($payload)
+    $request = "POST /app/settings HTTP/1.0`r`nContent-Type: application/json`r`nContent-Length: $($bytes.Length)`r`n`r`n$payload"
+    $reqBytes = [System.Text.Encoding]::UTF8.GetBytes($request)
+    $pipe.Write($reqBytes, 0, $reqBytes.Length)
+    $pipe.Flush()
+    $pipe.WaitForPipeDrain()
+
+    $reader   = New-Object System.IO.StreamReader($pipe)
+    $response = $reader.ReadToEnd()
+    $pipe.Close()
+
+    # Extract HTTP status code from the response line
+    $statusLine = ($response -split "`r`n")[0]
+    if ($statusLine -match "200|204") {
+        Write-Host "  API call succeeded ($($statusLine.Trim()))"
+    } else {
+        Write-Host "  Error: API returned unexpected response:"
+        Write-Host "  $statusLine"
+        exit 1
+    }
+} catch {
+    Write-Host "  Error: Could not connect to Docker Desktop backend pipe"
+    Write-Host "  $_"
+    exit 1
+}
 
 # ------------------------------------------------------------------
 # Method 2: Inject bogus proxy into User-scope environment variables.
@@ -86,51 +129,38 @@ Write-Host "  Settings store updated"
 Write-Host "  User-scope proxy environment variables set"
 
 # ------------------------------------------------------------------
-# Restart Docker Desktop so it reads the new settings-store.json.
-# Stop the process, wait for it to exit, relaunch, then poll docker info
-# until the daemon is back up (max 60 seconds).
+# Wait for the proxy to become observable in the daemon.
+#
+# The API applies settings immediately, but there can be a brief lag
+# before docker info reflects the change. Poll in two stages:
+#   Stage 1 - docker info should report the bogus proxy address
+#   Stage 2 - docker pull should fail with a proxy-related error
 # ------------------------------------------------------------------
 Write-Host ""
-Write-Host "Restarting Docker Desktop to apply proxy settings..."
-
-# Stop Docker Desktop
-$dockerProcess = Get-Process "Docker Desktop" -ErrorAction SilentlyContinue
-if ($dockerProcess) {
-    $dockerProcess | Stop-Process -Force
-    Start-Sleep -Seconds 2
-}
-
-# Wait for it to fully exit
-$waited = 0
-while ((Get-Process "Docker Desktop" -ErrorAction SilentlyContinue) -and $waited -lt 15) {
-    Start-Sleep -Seconds 1
-    $waited++
-}
-
-# Relaunch
-$dockerExe = "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe"
-if (Test-Path $dockerExe) {
-    Start-Process $dockerExe
-} else {
-    Write-Host "  Warning: Could not find Docker Desktop.exe - please start it manually"
-}
-
-# Poll until daemon is ready
-Write-Host "Docker Desktop must be started manually..."
-Write-Host "  Waiting for Docker Desktop to restart..."
-$ready = $false
-for ($i = 0; $i -lt 30; $i++) {
-    Start-Sleep -Seconds 2
-    docker info 2>&1 | Out-Null
-    if ($LASTEXITCODE -eq 0) {
-        $ready = $true
+Write-Host "  Waiting for proxy settings to take effect..."
+$proxyActive = $false
+for ($i = 0; $i -lt 15; $i++) {
+    # Stage 1: check docker info for the bogus address
+    $info = docker info 2>&1
+    if ($info -match [regex]::Escape("192.0.2")) {
+        $proxyActive = $true
         break
     }
+
+    # Stage 2: attempt a pull and look for proxy-related failure
+    $pullErr = docker pull hello-world 2>&1
+    if ($pullErr -match [regex]::Escape("192.0.2") -or $pullErr -match "proxyconnect") {
+        $proxyActive = $true
+        break
+    }
+
+    Start-Sleep -Seconds 2
 }
 
-if (-not $ready) {
-    Write-Host "  Warning: Docker Desktop did not come back within 60s"
-    Write-Host "  You may need to wait a moment before the break is fully active"
+if (-not $proxyActive) {
+    Write-Host "  Warning: proxy not yet visible in docker info or pull output after 30s"
+    Write-Host "  Settings were applied via the API - the break may still be active."
+    Write-Host "  Try: docker pull hello-world (should time out)"
 }
 
 Write-Host ""
