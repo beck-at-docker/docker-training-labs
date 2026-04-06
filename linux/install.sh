@@ -7,7 +7,19 @@ set -e
 
 INSTALL_DIR="/usr/local/lib/docker-training-labs"
 BIN_DIR="/usr/local/bin"
-STATE_DIR="$HOME/.docker-training-labs"
+
+# When called via "sudo bash install.sh" from bootstrap.sh, $HOME and $USER
+# resolve to root. Resolve back to the invoking user so that state files,
+# grades, and shell helpers land in the right home directory.
+if [ -n "$SUDO_USER" ]; then
+    REAL_USER="$SUDO_USER"
+    REAL_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+else
+    REAL_USER="$USER"
+    REAL_HOME="$HOME"
+fi
+
+STATE_DIR="$REAL_HOME/.docker-training-labs"
 
 echo "=========================================="
 echo "Docker Desktop Training Labs Installer"
@@ -26,7 +38,17 @@ if ! command -v docker &>/dev/null; then
     exit 1
 fi
 
-if ! docker info &>/dev/null; then
+# When install.sh is invoked via "sudo bash install.sh" from bootstrap.sh,
+# this process runs as root. Docker Desktop on Linux is per-user, so the
+# root account cannot reach the user's socket. Re-run the check as the
+# invoking user if available; otherwise fall back to a direct check.
+if [ "$EUID" -eq 0 ] && [ -n "$SUDO_USER" ]; then
+    DOCKER_CHECK="sudo -u $SUDO_USER docker info"
+else
+    DOCKER_CHECK="docker info"
+fi
+
+if ! $DOCKER_CHECK &>/dev/null; then
     echo "Error: Docker Desktop is not running. Please start it first."
     exit 1
 fi
@@ -59,7 +81,8 @@ echo ""
 echo "Creating installation directories..."
 
 sudo mkdir -p "$INSTALL_DIR/lib" "$INSTALL_DIR/scenarios" "$INSTALL_DIR/tests"
-mkdir -p "$STATE_DIR/reports"
+# Note: $STATE_DIR is created in the "Initialise state files" block below,
+# as the real user, so it is owned correctly.
 
 echo "  Directories created"
 echo ""
@@ -99,21 +122,30 @@ echo ""
 # ------------------------------------------------------------------
 echo "Initialising training environment..."
 
-# Write the initial config file. This runs as the trainee's user (not root),
-# so the file is owned correctly and can be updated at runtime.
-# Contrast with Mac install.sh, which runs as root via sudo and therefore
-# defers config creation to the main script's first-run bootstrap.
+# Create state directory as the real user so it is owned correctly.
+# sudo -u preserves ownership when SUDO_USER is set; falls through to
+# plain mkdir when running directly (no sudo context).
+if [ -n "$SUDO_USER" ]; then
+    sudo -u "$REAL_USER" mkdir -p "$STATE_DIR/reports"
+else
+    mkdir -p "$STATE_DIR/reports"
+fi
+
 cat > "$STATE_DIR/config.json" << EOF
 {
   "version": "1.0.0",
-  "trainee_id": "$USER",
+  "trainee_id": "$REAL_USER",
   "current_scenario": null,
   "scenario_start_time": null
 }
 EOF
 
+# Set ownership back to the real user if we're running as root.
+[ -n "$SUDO_USER" ] && chown -R "$REAL_USER" "$STATE_DIR"
+
 if [ ! -f "$STATE_DIR/grades.csv" ]; then
     echo "trainee_id,scenario,score,timestamp,duration_seconds" > "$STATE_DIR/grades.csv"
+    [ -n "$SUDO_USER" ] && chown "$REAL_USER" "$STATE_DIR/grades.csv"
 fi
 
 echo "  Training environment initialised"
@@ -127,7 +159,7 @@ echo ""
 # The sentinel guard prevents the block from being appended more than once
 # if bootstrap is re-run.
 echo "Configuring shell helper..."
-BASHRC="$HOME/.bashrc"
+BASHRC="$REAL_HOME/.bashrc"
 if [ -f "$BASHRC" ] && ! grep -q "BEGIN DOCKER TRAINING LABS" "$BASHRC"; then
     cat >> "$BASHRC" << 'EOF'
 
