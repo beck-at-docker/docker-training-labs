@@ -58,6 +58,19 @@ EOF
     echo "  Created minimal config.json (was absent)"
 fi
 
+# ------------------------------------------------------------------
+# Sign out BEFORE corrupting the credential store.
+#
+# docker logout uses the credential helper to delete stored tokens.
+# If we corrupt credsStore first, the helper binary doesn't exist,
+# docker logout fails silently (|| true), and the existing session
+# stays intact - meaning the break has no visible effect.
+# Logging out first while the helper is still valid ensures credentials
+# are actually cleared before we break the save path.
+# ------------------------------------------------------------------
+docker logout > /dev/null 2>&1 || true
+echo "  Docker Hub credentials cleared"
+
 cp "$CONFIG_FILE" "${CONFIG_FILE}.backup-sso-${BACKUP_TIMESTAMP}"
 
 # ------------------------------------------------------------------
@@ -91,18 +104,6 @@ with open(path, 'w') as f:
 EOF
 
 echo "  ~/.docker/config.json corrupted (credsStore -> $BROKEN_CREDS_STORE)"
-
-# ------------------------------------------------------------------
-# Sign out to force the sign-in prompt.
-#
-# docker logout clears any credentials already stored under the current
-# helper, placing Docker Desktop in a signed-out state immediately.
-# On its own, the broken credsStore would only manifest the next time
-# the trainee tried to log in; logging out here ensures the symptom is
-# visible right away.
-# ------------------------------------------------------------------
-docker logout > /dev/null 2>&1 || true
-echo "  Docker Hub credentials cleared"
 
 echo ""
 echo "Docker Desktop broken"
