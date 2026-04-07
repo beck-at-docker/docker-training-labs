@@ -96,8 +96,6 @@ function Show-MainMenu {
         Write-Host ""
         Write-Host "8. View my report card"
         Write-Host ""
-        Write-Host "--- Trainer Tools ---"
-        Write-Host "9. Fix All"
         Write-Host "0. Exit"
     }
 
@@ -692,7 +690,7 @@ function Invoke-FixCurrentLab {
 
         default {
             Write-Yellow "No targeted fix available for: $scenario"
-            Write-Host "Use option 9 (Fix All) to restore the environment manually."
+            Write-Host "Restart Docker Desktop manually to restore the environment."
         }
     }
 
@@ -743,18 +741,6 @@ function Reset-Lab {
     } else {
         Write-Host "Cancelled."
     }
-}
-
-# ------------------------------------------------------------------
-# Run-FixAll - Trainer utility: run all fix scripts with a single restart
-# ------------------------------------------------------------------
-function Run-FixAll {
-    Show-Banner
-    Write-Yellow "Fix All - Trainer Mode"
-    Write-Host ""
-    & powershell -ExecutionPolicy Bypass -File "$INSTALL_DIR\scenarios\all.ps1"
-    Write-Host ""
-    Read-Host "Press enter to continue"
 }
 
 # ------------------------------------------------------------------
@@ -814,7 +800,6 @@ function Main {
                 "6" { Start-Lab 6; exit 0 }
                 "7" { Start-Lab 7; exit 0 }
                 "8" { Show-ReportCard; Read-Host "Press enter to continue" }
-                "9" { Run-FixAll }
                 "0" { Write-Host "Goodbye!"; exit 0 }
                 default { Write-Host "Invalid option"; Start-Sleep 1 }
             }
