@@ -1,37 +1,37 @@
 #!/bin/bash
-# scenarios/break_sso.sh - Simulates an SSO authentication loop caused by proxy misconfiguration.
+# scenarios/break_sso.sh - Simulates a credential store misconfiguration that
+# prevents Docker Desktop from saving login credentials.
 #
-# Based on real support cases where Docker Desktop's SSO login flow produced
-# an immediate sign-out loop. The root cause was a manually configured proxy
-# that blocked Docker's auth/identity endpoints while leaving registry traffic
-# accessible via the no-proxy / ProxyExclude list.
+# Based on real support cases where ~/.docker/config.json had a corrupted or
+# incorrect credsStore entry pointing to a credential helper binary that does
+# not exist on the system. When Docker completes an authentication flow (SSO
+# or plain docker login), it tries to save the resulting token using the
+# configured credential helper. If that helper is not found, the save fails
+# and Docker Desktop immediately reverts to a signed-out state - producing a
+# sign-in loop identical in appearance to a proxy-blocked auth flow, but with
+# a completely different root cause.
 #
-# On Linux, Docker Desktop stores its GUI-level proxy config in:
-#   ~/.docker/desktop/settings.json
+# The break:
+#   1. Corrupts ~/.docker/config.json by setting credsStore to a non-existent
+#      credential helper name ("desktop-broken"). Docker will look for a binary
+#      named docker-credential-desktop-broken in PATH, fail to find it, and be
+#      unable to save credentials after any successful auth attempt.
 #
-# This mirrors the Mac/Windows settings-store.json approach. If that file
-# does not exist (older Docker Desktop versions or different installation),
-# the script falls back to ~/.docker/daemon.json with a no-proxy list.
+#   2. Runs docker logout to clear any existing stored credentials, placing
+#      Docker Desktop in a signed-out state immediately.
 #
-# The break creates two conditions:
+# The trainee must:
+#   - Identify the broken credsStore in ~/.docker/config.json
+#   - Correct it (remove the key, or set it to a valid helper like "desktop")
+#   - Sign back in to Docker Hub
 #
-#   1. settings.json (or daemon.json fallback): sets proxy mode to "manual"
-#      with a non-routable address (192.0.2.1, RFC 5737 TEST-NET). The
-#      ProxyExclude / no-proxy list covers registry and token-service hosts,
-#      leaving hub.docker.com, login.docker.com, and id.docker.com exposed.
-#
-#      Result: anonymous pulls succeed; SSO completion fails.
-#
-#   2. docker logout: removes stored Docker Hub credentials, placing Docker
-#      Desktop in a signed-out state. When the trainee attempts SSO, the
-#      browser auth succeeds but the token exchange with hub.docker.com goes
-#      through the bogus proxy and fails.
+# Reference: https://docs.docker.com/engine/reference/commandline/login/#credentials-store
 
 set -e
 
-DESKTOP_SETTINGS="$HOME/.docker/desktop/settings.json"
-DAEMON_CONFIG="$HOME/.docker/daemon.json"
+CONFIG_FILE="$HOME/.docker/config.json"
 BACKUP_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+BROKEN_CREDS_STORE="desktop-broken"
 
 echo "Breaking Docker Desktop..."
 
@@ -40,141 +40,72 @@ if ! docker info &>/dev/null; then
     exit 1
 fi
 
-# Registry and token-service hosts excluded from the proxy so pulls still work.
-# hub.docker.com, login.docker.com, and id.docker.com are intentionally absent.
-REGISTRY_EXCLUDE="registry-1.docker.io,production.cloudflare.docker.com,index.docker.io,auth.docker.io"
-
 # ------------------------------------------------------------------
-# Stop Docker Desktop BEFORE modifying settings files.
+# Ensure ~/.docker/config.json exists.
 #
-# Docker Desktop persists its in-memory configuration back to
-# settings.json on clean shutdown. Writing the broken settings first
-# and then restarting would cause the graceful shutdown to overwrite
-# our changes. Stopping the process first prevents that race.
+# On a freshly installed Docker Desktop this file may not exist until
+# the first docker login. We create a minimal valid config if absent so
+# we always have a file to corrupt.
 # ------------------------------------------------------------------
-echo ""
-echo "Stopping Docker Desktop before modifying settings..."
+mkdir -p "$HOME/.docker"
 
-if systemctl --user stop docker-desktop 2>/dev/null; then
-    echo "  Stopped via systemctl"
-else
-    pkill -f "docker-desktop" 2>/dev/null || true
-    echo "  Stopped via pkill"
+if [ ! -f "$CONFIG_FILE" ]; then
+    cat > "$CONFIG_FILE" << 'EOF'
+{
+    "auths": {}
+}
+EOF
+    echo "  Created minimal config.json (was absent)"
 fi
 
-# Wait for the Docker Desktop process to exit
-for i in $(seq 1 15); do
-    if ! pgrep -f "docker-desktop" > /dev/null 2>&1; then
-        break
-    fi
-    sleep 1
-done
+cp "$CONFIG_FILE" "${CONFIG_FILE}.backup-sso-${BACKUP_TIMESTAMP}"
 
 # ------------------------------------------------------------------
-# Method 1: Corrupt Docker Desktop's GUI proxy settings.
+# Corrupt the credsStore entry.
 #
-# Prefer ~/.docker/desktop/settings.json (Docker Desktop's own config),
-# which allows the same asymmetric ProxyExclude approach used on Mac and
-# Windows. Fall back to daemon.json if the file does not exist.
+# Docker uses the credsStore key to determine which external credential
+# helper binary to call when saving or retrieving credentials. The binary
+# name is docker-credential-<value>. Setting this to a non-existent name
+# causes every credential save attempt to fail with:
+#
+#   Error saving credentials: error storing credentials - err: exec:
+#   "docker-credential-desktop-broken": executable file not found in $PATH
+#
+# This means auth can complete (browser SSO or docker login both work up
+# to the point of issuing a token) but the token can never be persisted.
+# Docker Desktop immediately shows signed-out because nothing was saved.
 # ------------------------------------------------------------------
-if [ -f "$DESKTOP_SETTINGS" ]; then
-    cp "$DESKTOP_SETTINGS" "${DESKTOP_SETTINGS}.backup-${BACKUP_TIMESTAMP}"
-
-    python3 - "$DESKTOP_SETTINGS" << EOF
+python3 - "$CONFIG_FILE" "$BROKEN_CREDS_STORE" << 'EOF'
 import json, sys
 
-path = sys.argv[1]
+path       = sys.argv[1]
+bad_helper = sys.argv[2]
+
 with open(path, 'r') as f:
     data = json.load(f)
 
-bogus_proxy = "http://192.0.2.1:8080"
-registry_exclude = "$REGISTRY_EXCLUDE"
-
-# NOTE: Docker Desktop uses a two-field pattern for manual proxy config.
-# ProxyHTTP/HTTPS is the address shown in the UI (display/remembered value);
-# Docker Desktop only routes traffic through OverrideProxyHTTP/HTTPS.
-# Without setting the Override fields, DD falls back to system proxy on
-# restart and the break has no effect.
-data['ProxyHTTPMode']                = 'manual'
-data['ProxyHTTP']                    = bogus_proxy  # UI display / remembered value
-data['ProxyHTTPS']                   = bogus_proxy  # UI display / remembered value
-data['OverrideProxyHTTP']            = bogus_proxy  # active value DD routes traffic through
-data['OverrideProxyHTTPS']           = bogus_proxy  # active value DD routes traffic through
-data['ProxyExclude']                 = registry_exclude
-data['ContainersProxyHTTPMode']      = 'system'
-data['ContainersProxyHTTP']          = ''
-data['ContainersProxyHTTPS']         = ''
-data['ContainersOverrideProxyHTTP']  = ''
-data['ContainersOverrideProxyHTTPS'] = ''
-data['ContainersProxyExclude']       = ''
+data['credsStore'] = bad_helper
 
 with open(path, 'w') as f:
-    json.dump(data, f, indent=2)
+    json.dump(data, f, indent=4)
 EOF
-    echo "  Docker Desktop settings updated (${DESKTOP_SETTINGS})"
 
-else
-    # Fallback: use daemon.json with a no-proxy list. This controls the Docker
-    # daemon's proxy, not Docker Desktop's GUI layer, so the SSO symptom may
-    # present differently (docker info fails rather than a GUI loop). The
-    # diagnostic path - finding proxy config and correcting exclusions - is the
-    # same.
-    mkdir -p "$HOME/.docker"
-
-    if [ -f "$DAEMON_CONFIG" ]; then
-        cp "$DAEMON_CONFIG" "${DAEMON_CONFIG}.backup-${BACKUP_TIMESTAMP}"
-    fi
-
-    cat > "$DAEMON_CONFIG" << EOF
-{
-  "proxies": {
-    "http-proxy": "http://192.0.2.1:8080",
-    "https-proxy": "http://192.0.2.1:8080",
-    "no-proxy": "$REGISTRY_EXCLUDE"
-  }
-}
-EOF
-    echo "  daemon.json updated with asymmetric proxy (fallback path)"
-    echo "  Note: ~/.docker/desktop/settings.json not found; using daemon.json"
-fi
+echo "  ~/.docker/config.json corrupted (credsStore -> $BROKEN_CREDS_STORE)"
 
 # ------------------------------------------------------------------
-# Method 2: Sign out to force the sign-in prompt
+# Sign out to force the sign-in prompt.
+#
+# docker logout clears any credentials already stored under the current
+# helper, placing Docker Desktop in a signed-out state immediately.
+# On its own, the broken credsStore would only manifest the next time
+# the trainee tried to log in; logging out here ensures the symptom is
+# visible right away.
 # ------------------------------------------------------------------
 docker logout > /dev/null 2>&1 || true
 echo "  Docker Hub credentials cleared"
 
-# ------------------------------------------------------------------
-# Restart Docker Desktop so it reads the updated settings.
-# On Linux, Docker Desktop is managed as a systemd user service.
-# ------------------------------------------------------------------
-echo ""
-echo "Restarting Docker Desktop to apply proxy settings..."
-
-if systemctl --user start docker-desktop 2>/dev/null; then
-    echo "  Restart signal sent via systemctl"
-else
-    echo "  Warning: Could not restart Docker Desktop automatically via systemctl"
-    echo "  Please restart Docker Desktop manually before attempting to sign in"
-fi
-
-echo "Docker Desktop must be started manually..."
-echo "  Waiting for Docker Desktop to restart..."
-DOCKER_READY=0
-for i in $(seq 1 30); do
-    if docker info &>/dev/null 2>&1; then
-        DOCKER_READY=1
-        break
-    fi
-    sleep 2
-done
-
-if [ "$DOCKER_READY" -eq 0 ]; then
-    echo "  Warning: Docker Desktop did not come back within 60s"
-    echo "  Wait a moment before attempting to sign in"
-fi
-
 echo ""
 echo "Docker Desktop broken"
+echo "Backup saved: ${CONFIG_FILE}.backup-sso-${BACKUP_TIMESTAMP}"
 echo ""
-echo "Symptom: SSO sign-in loop; image pulls still work"
+echo "Symptom: Sign-in loop - auth completes but credentials cannot be saved"

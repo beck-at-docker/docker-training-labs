@@ -269,37 +269,40 @@ EOF
             ;;
         SSO)
             cat << 'EOF'
-Problem: Docker Desktop keeps signing you out
+Problem: Docker Desktop keeps signing you out immediately
 
 After starting Docker Desktop, you find yourself signed out.
-When you try to sign back in using SSO, the browser opens and
-you authenticate successfully - but Docker Desktop immediately
-signs you out again.
+When you try to sign back in - via SSO or plain docker login -
+the auth flow completes successfully, but Docker Desktop
+immediately reverts to a signed-out state. Every attempt loops.
 
 Symptoms you should observe:
   - Docker Desktop shows you as signed out
   - docker info shows no Username field
-  - Surprisingly, docker pull still works for public images
-  - SSO loop: browser auth succeeds but Desktop signs out
+  - docker pull still works for public images
+  - Auth appears to complete but nothing sticks
 
-The fact that pulls work but login doesn't is the key clue.
-Something is selectively blocking certain network destinations
-while leaving others reachable.
+The fact that pulls still work tells you the Docker daemon is
+healthy and network connectivity is fine. Something is
+preventing credentials from being saved after a successful login.
 
 Diagnostic Commands to Try:
   docker info | grep -i username
   docker pull alpine:latest
-  cat ~/.docker/desktop/settings.json
-  cat ~/.docker/daemon.json
-  env | grep -i proxy
+  cat ~/.docker/config.json
+  docker login
 
 Look for:
-  - ProxyHTTPMode set to "manual" with an unroutable proxy address
-  - A ProxyExclude / no-proxy list covering registries but NOT login endpoints
-  - The asymmetry: what works (pulls) vs. what doesn't (auth)
+  - A "credsStore" key in ~/.docker/config.json
+  - Its value: should be a credential helper binary that actually
+    exists on your system (e.g. "desktop" requires the binary
+    docker-credential-desktop to be in your PATH)
+  - Run: which docker-credential-<value> to verify it exists
 
-Fix the proxy config so auth endpoints are reachable, then sign
-back in and run troubleshootlinuxlab --check.
+If the binary doesn't exist, Docker cannot save the token after
+auth completes - hence the loop. Fix the credsStore value (or
+remove the key entirely to use Docker's default), sign back in,
+then run troubleshootlinuxlab --check.
 EOF
             ;;
         BRIDGE)
