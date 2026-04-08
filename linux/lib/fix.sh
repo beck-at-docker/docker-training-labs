@@ -140,15 +140,28 @@ _wait_for_bridge() {
         return 0
     fi
 
-    echo "  Connectivity still broken after 3 minutes."
+    echo "  Connectivity still broken after 60 seconds."
     echo ""
-    echo "  --- Diagnostic: FORWARD chain (iptables) ---"
+    echo "  --- Diagnostic: iptables state ---"
     docker run --rm --privileged --pid=host alpine:latest \
         nsenter -t 1 -m -u -n -i sh -c '
-            echo "=== iptables ==="
+            echo "=== FORWARD chain ==="
             iptables -L FORWARD -n -v 2>&1 || echo "(iptables not available)"
             echo ""
-            echo "=== iptables-legacy ==="
+            echo "=== DOCKER-FORWARD chain ==="
+            iptables -L DOCKER-FORWARD -n -v 2>&1 || echo "(DOCKER-FORWARD not found)"
+            echo ""
+            echo "=== DOCKER-ISOLATION chains ==="
+            iptables -L DOCKER-ISOLATION-STAGE-1 -n -v 2>&1 || echo "(DOCKER-ISOLATION-STAGE-1 not found)"
+            iptables -L DOCKER-ISOLATION-STAGE-2 -n -v 2>&1 || echo "(DOCKER-ISOLATION-STAGE-2 not found)"
+            echo ""
+            echo "=== nat POSTROUTING ==="
+            iptables -t nat -L POSTROUTING -n -v 2>&1 || echo "(nat POSTROUTING check failed)"
+            echo ""
+            echo "=== nat DOCKER ==="
+            iptables -t nat -L DOCKER -n -v 2>&1 || echo "(nat DOCKER not found)"
+            echo ""
+            echo "=== iptables-legacy FORWARD ==="
             iptables-legacy -L FORWARD -n -v 2>&1 || echo "(iptables-legacy not available)"
             echo ""
             echo "=== ip_forward ==="
@@ -156,6 +169,9 @@ _wait_for_bridge() {
             echo ""
             echo "=== docker0 link ==="
             ip link show docker0 2>&1 || echo "(docker0 not found)"
+            echo ""
+            echo "=== routes ==="
+            ip route show 2>&1
         ' 2>/dev/null || echo "  (nsenter failed - cannot read VM state)"
     echo "  --- End diagnostic ---"
     echo ""
