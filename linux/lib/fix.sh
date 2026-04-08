@@ -51,14 +51,14 @@ stop_docker_desktop() {
 #   Removing the DROP rule via nsenter is necessary but not sufficient.
 #   While the DROP rule is active, Docker's own forwarding chains
 #   (DOCKER, DOCKER-ISOLATION-STAGE-1, DOCKER-ISOLATION-STAGE-2) can reach
-#   an inconsistent state — new containers added or removed during the break
-#   may leave orphaned or missing per-container rules. A restart forces Docker
-#   to rebuild all bridge-network iptables rules cleanly from scratch, which
-#   is the only fully reliable recovery path.
+#   an inconsistent state. A restart forces Docker to rebuild all
+#   bridge-network iptables rules cleanly from scratch.
 #
-#   Additionally, `docker info` becoming available does not mean bridge setup
-#   is complete. A brief sleep + ping check after daemon-ready gives the
-#   bridge a moment to finish initialising before we declare success.
+# Why _wait_for_bridge rather than sleep:
+#   docker info readiness does NOT mean the docker0 bridge is fully
+#   initialised. On Linux, the gap between daemon-ready and working bridge
+#   iptables can be 15+ seconds. Polling a live ping is more reliable than
+#   any fixed sleep.
 #
 # Requires a running Docker daemon (to remove containers and run nsenter).
 fix_bridge() {
@@ -74,8 +74,8 @@ fix_bridge() {
     echo "Removing iptables DROP rule(s) from FORWARD chain..."
 
     # Loop inside a single nsenter shell - avoids spinning up a new container
-    # for every rule. The while loop exits as soon as there are no more
-    # matching rules (iptables -D returns non-zero when the rule is not found).
+    # for every rule. The while loop exits as soon as iptables -D returns
+    # non-zero (no more matching rules).
     removed_count=$(
         docker run --rm --privileged --pid=host alpine:latest \
             nsenter -t 1 -m -u -n -i sh -c '
@@ -93,18 +93,24 @@ fix_bridge() {
         echo "  No matching DROP rules found (may have already been removed)"
     fi
 
-    # Always restart Docker Desktop so it rebuilds its bridge forwarding
-    # chains (DOCKER, DOCKER-ISOLATION-STAGE-*) cleanly. Relying on a
-    # post-nsenter ping to decide whether a restart is needed is unreliable:
-    # the nsenter failure is silently swallowed, and docker info readiness
-    # races ahead of bridge network initialisation.
     echo ""
     echo "Restarting Docker Desktop to rebuild bridge networking..."
     stop_docker_desktop
 
+    # Start Docker Desktop via systemctl only. The nohup fallback previously
+    # used here was dangerous: if systemctl failed, the fallback fired a
+    # background Docker Desktop process outside systemd's control. That process
+    # raced against the stopped service, docker info reported ready against the
+    # still-running old daemon, and the ping test ran with the DROP rule still
+    # in place. With no fallback, a failed start returns a clear error.
     echo "  Starting Docker Desktop..."
-    systemctl --user start docker-desktop 2>/dev/null || \
-        nohup docker-desktop &>/dev/null &
+    if ! systemctl --user start docker-desktop 2>/dev/null; then
+        echo "  Error: 'systemctl --user start docker-desktop' failed."
+        echo "  Is Docker Desktop installed and the user systemd session active?"
+        echo "  If running Docker Engine (not Desktop), re-run with:"
+        echo "    sudo systemctl restart docker"
+        return 1
+    fi
 
     echo "  Waiting for Docker daemon (up to 120 seconds)..."
     local i
@@ -121,16 +127,35 @@ fix_bridge() {
         return 1
     fi
 
-    # Brief pause: docker info can return before Docker has finished
-    # rebuilding the docker0 bridge iptables rules.
-    sleep 3
-
     echo ""
-    echo "Verifying network connectivity..."
-    if docker run --rm alpine:latest ping -c 2 8.8.8.8 > /dev/null 2>&1; then
+    echo "Verifying network connectivity (polling up to 60 seconds)..."
+    _wait_for_bridge
+}
+
+# _wait_for_bridge - Poll container internet connectivity after daemon start.
+#
+# docker info ready does not mean the docker0 bridge iptables chains are
+# initialised. This function retries a ping container every 5 seconds for up
+# to 60 seconds, which covers the full bridge-init window on Linux.
+_wait_for_bridge() {
+    local i ping_ok=0
+    for i in $(seq 1 12); do
+        if docker run --rm alpine:latest ping -c 1 -W 3 8.8.8.8 > /dev/null 2>&1; then
+            ping_ok=1
+            break
+        fi
+        echo "  Waiting for bridge to initialise... (${i}/12)"
+        sleep 5
+    done
+
+    if [ "$ping_ok" -eq 1 ]; then
         echo "  Internet connectivity restored"
     else
         echo "  Connectivity still broken after restart - manual investigation required"
+        echo ""
+        echo "  To inspect the FORWARD chain inside the Docker VM:"
+        echo "    docker run --rm --privileged --pid=host alpine:latest \\"
+        echo "      nsenter -t 1 -m -u -n -i iptables -L FORWARD -n"
         return 1
     fi
 }
