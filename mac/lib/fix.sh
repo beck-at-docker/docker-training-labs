@@ -14,8 +14,13 @@
 # would overwrite any changes written while the daemon was running.
 # Call stop_docker_desktop before invoking any of those four functions.
 #
-# Scenarios that operate via live iptables or container removal (DNS, BRIDGE,
-# PORT) require Docker to be running and do not need a restart to take effect.
+# Scenarios that operate via live iptables or container removal (DNS, PORT)
+# require Docker to be running and do not need a restart to take effect.
+#
+# BRIDGE also starts with Docker running, but may fall back to a full restart
+# if Docker's internal forwarding chains are left in an inconsistent state
+# while the DROP rule was active. The fast path (iptables delete only) is
+# tried first; restart is only triggered if ping still fails afterward.
 
 SETTINGS_STORE="$HOME/Library/Group Containers/group.com.docker/settings-store.json"
 
@@ -47,9 +52,23 @@ stop_docker_desktop() {
 
 # fix_bridge - Restore the Docker bridge network.
 #
-# Removes the lab's test containers and the iptables DROP rule injected into
-# the Docker VM by break_bridge.sh. Requires a running Docker daemon.
+# Removes the lab's test containers and ALL matching iptables DROP rules
+# injected by break_bridge.sh.
+#
+# A single iptables -D only removes the first matching rule. If break_bridge
+# was run more than once, multiple DROP rules may be stacked at the top of
+# FORWARD. The loop inside nsenter drains all of them in one container
+# invocation.
+#
+# If ping still fails after the rules are gone, Docker Desktop's own
+# forwarding chains (DOCKER, DOCKER-ISOLATION-STAGE-1/2) are likely in an
+# inconsistent state from having the DROP rule active. A restart forces
+# Docker to rebuild all bridge-network iptables rules cleanly.
+#
+# Requires a running Docker daemon.
 fix_bridge() {
+    local removed_count
+
     echo "Restoring Docker bridge network..."
 
     echo "Removing test containers..."
@@ -57,19 +76,70 @@ fix_bridge() {
     docker rm -f broken-app 2>/dev/null && echo "  Removed broken-app" || true
 
     echo ""
-    echo "Restoring iptables rules..."
-    docker run --rm --privileged --pid=host alpine:latest \
-        nsenter -t 1 -m -u -n -i sh -c \
-            'iptables -D FORWARD -i docker0 -j DROP 2>/dev/null || true
-             echo "DROP rule removed"' \
-    || echo "  iptables restore failed - a Docker Desktop restart should clear it"
+    echo "Removing iptables DROP rule(s) from FORWARD chain..."
+
+    # Loop inside a single nsenter shell - avoids spinning up a new container
+    # for every rule. The while loop exits as soon as there are no more
+    # matching rules (iptables -D returns non-zero when the rule is not found).
+    removed_count=$(
+        docker run --rm --privileged --pid=host alpine:latest \
+            nsenter -t 1 -m -u -n -i sh -c '
+                count=0
+                while iptables -D FORWARD -i docker0 -j DROP 2>/dev/null; do
+                    count=$((count + 1))
+                done
+                echo "$count"
+            ' 2>/dev/null
+    ) || true
+
+    if [ "${removed_count:-0}" -gt 0 ]; then
+        echo "  Removed ${removed_count} DROP rule(s)"
+    else
+        echo "  No matching DROP rules found (already clean)"
+    fi
 
     echo ""
     echo "Verifying network connectivity..."
     if docker run --rm alpine:latest ping -c 2 8.8.8.8 > /dev/null 2>&1; then
         echo "  Internet connectivity restored"
+        return 0
+    fi
+
+    # Ping still fails after rule removal. Docker Desktop's own forwarding
+    # chains can be left in a degraded state while the DROP rule was active.
+    # A restart rebuilds those chains cleanly.
+    echo "  Connectivity still broken after rule removal."
+    echo "  Docker's internal bridge rules may be in an inconsistent state."
+    echo "  Restarting Docker Desktop to rebuild bridge networking..."
+    echo ""
+
+    stop_docker_desktop
+
+    echo "  Starting Docker Desktop..."
+    open -a "Docker Desktop"
+
+    echo "  Waiting for Docker daemon (up to 120 seconds)..."
+    local i
+    for i in $(seq 1 60); do
+        if docker info > /dev/null 2>&1; then
+            echo "  Docker daemon ready (${i}s)"
+            break
+        fi
+        sleep 2
+    done
+
+    if ! docker info > /dev/null 2>&1; then
+        echo "  Error: Docker Desktop did not start within 120 seconds"
+        return 1
+    fi
+
+    echo ""
+    echo "Verifying network connectivity after restart..."
+    if docker run --rm alpine:latest ping -c 2 8.8.8.8 > /dev/null 2>&1; then
+        echo "  Internet connectivity restored"
     else
-        echo "  Internet connectivity still broken"
+        echo "  Connectivity still broken after restart - manual investigation required"
+        return 1
     fi
 }
 
