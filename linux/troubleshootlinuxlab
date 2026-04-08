@@ -897,7 +897,12 @@ abandon_lab() {
                     stop_docker_desktop
                     ;;
             esac
-            $fix_func
+            # Tee output to a log file so it survives the menu screen-clear.
+            local log_file="$STATE_DIR/fix.log"
+            $fix_func 2>&1 | tee "$log_file"
+            local fix_exit=${PIPESTATUS[0]}
+            echo "" | tee -a "$log_file"
+            echo "Full output saved to: $log_file" | tee -a "$log_file"
             # PROXY/PROXYFAIL/SSO/AUTHCONFIG: restart Docker Desktop now that
             # the settings file edits are in place.
             case "$current" in
@@ -1027,6 +1032,7 @@ main() {
                     ;;
                 3)
                     abandon_lab
+                    read -p "Press enter to continue..."
                     ;;
                 4)
                     show_report_card

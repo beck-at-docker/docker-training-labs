@@ -42,40 +42,16 @@ stop_docker_desktop() {
     echo "  Docker Desktop stopped"
 }
 
-# fix_bridge - Restore the Docker bridge network.
+# _drain_bridge_drop_rules - Remove all matching DROP rules from FORWARD.
 #
-# Removes the lab's test containers, drains ALL matching iptables DROP rules
-# injected by break_bridge.sh, then restarts Docker Desktop.
-#
-# Why always restart:
-#   Removing the DROP rule via nsenter is necessary but not sufficient.
-#   While the DROP rule is active, Docker's own forwarding chains
-#   (DOCKER, DOCKER-ISOLATION-STAGE-1, DOCKER-ISOLATION-STAGE-2) can reach
-#   an inconsistent state. A restart forces Docker to rebuild all
-#   bridge-network iptables rules cleanly from scratch.
-#
-# Why _wait_for_bridge rather than sleep:
-#   docker info readiness does NOT mean the docker0 bridge is fully
-#   initialised. On Linux, the gap between daemon-ready and working bridge
-#   iptables can be 15+ seconds. Polling a live ping is more reliable than
-#   any fixed sleep.
-#
-# Requires a running Docker daemon (to remove containers and run nsenter).
-fix_bridge() {
+# Runs inside a single nsenter shell to avoid spinning up a new container
+# for each rule. Called both before and after the Docker Desktop restart:
+# before to clean up the injected rule while Docker is still running,
+# after to handle the case where the Linux Docker Desktop VM persists across
+# a daemon-only restart (i.e. systemctl stop/start restarts the daemon
+# service but leaves the underlying QEMU VM running with its iptables intact).
+_drain_bridge_drop_rules() {
     local removed_count
-
-    echo "Restoring Docker bridge network..."
-
-    echo "Removing test containers..."
-    docker rm -f broken-web 2>/dev/null && echo "  Removed broken-web" || true
-    docker rm -f broken-app 2>/dev/null && echo "  Removed broken-app" || true
-
-    echo ""
-    echo "Removing iptables DROP rule(s) from FORWARD chain..."
-
-    # Loop inside a single nsenter shell - avoids spinning up a new container
-    # for every rule. The while loop exits as soon as iptables -D returns
-    # non-zero (no more matching rules).
     removed_count=$(
         docker run --rm --privileged --pid=host alpine:latest \
             nsenter -t 1 -m -u -n -i sh -c '
@@ -90,24 +66,53 @@ fix_bridge() {
     if [ "${removed_count:-0}" -gt 0 ]; then
         echo "  Removed ${removed_count} DROP rule(s)"
     else
-        echo "  No matching DROP rules found (may have already been removed)"
+        echo "  No matching DROP rules found"
     fi
+}
+
+# fix_bridge - Restore the Docker bridge network.
+#
+# Removes test containers, drains DROP rules via nsenter, restarts Docker
+# Desktop, then drains DROP rules a second time after restart.
+#
+# Why drain twice:
+#   On Linux, 'systemctl stop/start docker-desktop' may only restart the
+#   daemon service while the underlying QEMU VM keeps running. If the VM
+#   persists, its iptables state is preserved and the DROP rule survives the
+#   restart. The second drain after restart covers this case: if the VM did
+#   fully reset the drain is a harmless no-op; if the VM persisted the drain
+#   removes the rule that the restart missed.
+#
+# Why _wait_for_bridge rather than a fixed sleep:
+#   docker info readiness races ahead of Docker finishing its iptables setup
+#   for docker0. On Linux, that gap can exceed 15 seconds. Polling a live
+#   ping is more reliable than any fixed sleep value.
+#
+# Requires a running Docker daemon (to remove containers and run nsenter).
+fix_bridge() {
+    echo "Restoring Docker bridge network..."
+
+    echo "Removing test containers..."
+    docker rm -f broken-web 2>/dev/null && echo "  Removed broken-web" || true
+    docker rm -f broken-app 2>/dev/null && echo "  Removed broken-app" || true
+
+    echo ""
+    echo "Removing iptables DROP rule(s) from FORWARD chain (pre-restart)..."
+    _drain_bridge_drop_rules
 
     echo ""
     echo "Restarting Docker Desktop to rebuild bridge networking..."
     stop_docker_desktop
 
-    # Start Docker Desktop via systemctl only. The nohup fallback previously
-    # used here was dangerous: if systemctl failed, the fallback fired a
-    # background Docker Desktop process outside systemd's control. That process
-    # raced against the stopped service, docker info reported ready against the
-    # still-running old daemon, and the ping test ran with the DROP rule still
-    # in place. With no fallback, a failed start returns a clear error.
+    # Start Docker Desktop via systemctl only. A nohup fallback was previously
+    # used here but was dangerous: if systemctl failed, nohup fired a background
+    # Docker Desktop process outside systemd's control that raced against the
+    # stopped service. With no fallback, a failed start surfaces a clear error.
     echo "  Starting Docker Desktop..."
     if ! systemctl --user start docker-desktop 2>/dev/null; then
         echo "  Error: 'systemctl --user start docker-desktop' failed."
         echo "  Is Docker Desktop installed and the user systemd session active?"
-        echo "  If running Docker Engine (not Desktop), re-run with:"
+        echo "  If running Docker Engine (not Desktop), restart manually:"
         echo "    sudo systemctl restart docker"
         return 1
     fi
@@ -126,6 +131,13 @@ fix_bridge() {
         echo "  Error: Docker Desktop did not start within 120 seconds"
         return 1
     fi
+
+    # Second drain: if the Linux Docker Desktop VM persisted across the
+    # daemon restart, its iptables still contain the DROP rule. Remove it now
+    # that the daemon is back up and nsenter can reach the VM again.
+    echo ""
+    echo "Removing iptables DROP rule(s) from FORWARD chain (post-restart)..."
+    _drain_bridge_drop_rules
 
     echo ""
     echo "Verifying network connectivity (polling up to 60 seconds)..."
