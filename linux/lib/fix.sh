@@ -44,20 +44,27 @@ stop_docker_desktop() {
 
 # _drain_bridge_drop_rules - Remove all matching DROP rules from FORWARD.
 #
-# Runs inside a single nsenter shell to avoid spinning up a new container
-# for each rule. Called both before and after the Docker Desktop restart:
-# before to clean up the injected rule while Docker is still running,
-# after to handle the case where the Linux Docker Desktop VM persists across
-# a daemon-only restart (i.e. systemctl stop/start restarts the daemon
-# service but leaves the underlying QEMU VM running with its iptables intact).
+# Tries both 'iptables' and 'iptables-legacy' because on modern Linux the
+# default iptables symlink may point to iptables-nft while the Docker daemon
+# (or a previous version of this break script) inserted the rule via
+# iptables-legacy (or vice versa). Draining both backends is a no-op for
+# whichever one doesn't hold the rule.
+#
+# Called both before and after the Docker Desktop restart: before to clean up
+# the injected rule while Docker is running, after to catch the case where the
+# Linux Docker Desktop VM persists across a daemon-only restart and keeps its
+# iptables state intact.
 _drain_bridge_drop_rules() {
     local removed_count
     removed_count=$(
         docker run --rm --privileged --pid=host alpine:latest \
             nsenter -t 1 -m -u -n -i sh -c '
                 count=0
-                while iptables -D FORWARD -i docker0 -j DROP 2>/dev/null; do
-                    count=$((count + 1))
+                for ipt in iptables iptables-legacy; do
+                    command -v "$ipt" > /dev/null 2>&1 || continue
+                    while $ipt -D FORWARD -i docker0 -j DROP 2>/dev/null; do
+                        count=$((count + 1))
+                    done
                 done
                 echo "$count"
             ' 2>/dev/null
@@ -146,30 +153,49 @@ fix_bridge() {
 
 # _wait_for_bridge - Poll container internet connectivity after daemon start.
 #
-# docker info ready does not mean the docker0 bridge iptables chains are
-# initialised. This function retries a ping container every 5 seconds for up
-# to 60 seconds, which covers the full bridge-init window on Linux.
+# docker info readiness races ahead of Docker finishing its iptables setup
+# for docker0. Retries a ping container every 5 seconds for up to 3 minutes.
+# On failure, dumps the FORWARD chain and ip_forward state so the cause is
+# visible in the log rather than requiring a separate diagnostic run.
 _wait_for_bridge() {
     local i ping_ok=0
-    for i in $(seq 1 12); do
+    for i in $(seq 1 36); do
         if docker run --rm alpine:latest ping -c 1 -W 3 8.8.8.8 > /dev/null 2>&1; then
             ping_ok=1
             break
         fi
-        echo "  Waiting for bridge to initialise... (${i}/12)"
+        echo "  Waiting for bridge to initialise... (${i}/36, $(( i * 5 ))s elapsed)"
         sleep 5
     done
 
     if [ "$ping_ok" -eq 1 ]; then
         echo "  Internet connectivity restored"
-    else
-        echo "  Connectivity still broken after restart - manual investigation required"
-        echo ""
-        echo "  To inspect the FORWARD chain inside the Docker VM:"
-        echo "    docker run --rm --privileged --pid=host alpine:latest \\"
-        echo "      nsenter -t 1 -m -u -n -i iptables -L FORWARD -n"
-        return 1
+        return 0
     fi
+
+    echo "  Connectivity still broken after 3 minutes."
+    echo ""
+    echo "  --- Diagnostic: FORWARD chain (iptables) ---"
+    docker run --rm --privileged --pid=host alpine:latest \
+        nsenter -t 1 -m -u -n -i sh -c '
+            echo "=== iptables ==="
+            iptables -L FORWARD -n -v 2>&1 || echo "(iptables not available)"
+            echo ""
+            echo "=== iptables-legacy ==="
+            iptables-legacy -L FORWARD -n -v 2>&1 || echo "(iptables-legacy not available)"
+            echo ""
+            echo "=== ip_forward ==="
+            cat /proc/sys/net/ipv4/ip_forward 2>&1
+            echo ""
+            echo "=== docker0 link ==="
+            ip link show docker0 2>&1 || echo "(docker0 not found)"
+        ' 2>/dev/null || echo "  (nsenter failed - cannot read VM state)"
+    echo "  --- End diagnostic ---"
+    echo ""
+    echo "  To inspect manually:"
+    echo "    docker run --rm --privileged --pid=host alpine:latest \\"
+    echo "      nsenter -t 1 -m -u -n -i iptables -L FORWARD -n -v"
+    return 1
 }
 
 # fix_dns - Remove the iptables DNS-block rules from inside the Docker VM.
