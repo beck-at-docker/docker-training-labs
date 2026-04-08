@@ -17,13 +17,16 @@
 #
 # The break does two things:
 #
-#   1. settings.json: writes a URL-format array to allowedOrgs
+#   1. docker logout: clears stored Docker Hub credentials while Docker Desktop
+#      is still running, so the credential helper (docker-credential-desktop)
+#      can execute cleanly. This must happen before DD is stopped - calling
+#      logout against a stopped daemon silently fails because the helper binary
+#      is part of the DD process.
+#
+#   2. settings-store.json: writes a URL-format array to allowedOrgs
 #      (e.g. ["https://hub.docker.com/u/required-org"]) instead of the correct
 #      plain-slug format (e.g. ["required-org"]). The enforcement check runs
 #      on sign-in and immediately signs the user out because no slug matches.
-#
-#   2. docker logout: clears stored Docker Hub credentials so the trainee is
-#      forced to attempt sign-in and encounter the enforcement failure directly.
 #
 # Docker Desktop is restarted after the settings change.
 
@@ -50,10 +53,23 @@ if [ ! -f "$DESKTOP_SETTINGS" ]; then
 fi
 
 # ------------------------------------------------------------------
-# Stop Docker Desktop BEFORE modifying settings.json.
+# Sign out of Docker Hub while DD is still running.
 #
-# Docker Desktop persists its in-memory configuration back to settings.json
-# on clean shutdown. Writing the broken settings first and then quitting
+# docker-credential-desktop is part of the Docker Desktop process. Calling
+# docker logout after DD is stopped silently fails - the helper binary is
+# unavailable, so credentials are never erased and the trainee stays signed
+# in. Running logout here, while DD is confirmed running, ensures the
+# credential helper executes and the trainee must sign in to trigger the
+# enforcement failure.
+# ------------------------------------------------------------------
+docker logout > /dev/null 2>&1 || true
+echo "Docker Hub credentials cleared"
+
+# ------------------------------------------------------------------
+# Stop Docker Desktop BEFORE modifying settings-store.json.
+#
+# Docker Desktop persists its in-memory configuration back to the settings
+# file on clean shutdown. Writing the broken settings first and then quitting
 # would cause the graceful shutdown to overwrite our changes. Stopping the
 # process first prevents that race.
 # ------------------------------------------------------------------
@@ -101,12 +117,6 @@ with open(path, 'w') as f:
 EOF
 
 echo "  Docker Desktop settings updated"
-
-# ------------------------------------------------------------------
-# Sign out of Docker Hub to force the sign-in prompt.
-# ------------------------------------------------------------------
-docker logout > /dev/null 2>&1 || true
-echo "  Docker Hub credentials cleared"
 
 # ------------------------------------------------------------------
 # Restart Docker Desktop so it reads the updated settings.
