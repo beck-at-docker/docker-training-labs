@@ -843,9 +843,7 @@ show_report_card() {
     echo ""
 }
 
-# ------------------------------------------------------------------
 # abandon_lab
-# ------------------------------------------------------------------
 abandon_lab() {
     local current
     current=$(get_current_scenario)
@@ -861,10 +859,69 @@ abandon_lab() {
     if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
         clear_current_scenario
         echo "Lab abandoned."
-        # Silently restore the environment in the background so the next lab
-        # starts from a clean state. 'echo y' satisfies all.sh's confirmation
-        # prompt; stdout/stderr are suppressed so nothing leaks to the terminal.
-        echo "y" | bash "$INSTALL_DIR/scenarios/all.sh" > /dev/null 2>&1 &
+        echo ""
+        echo "Restoring Docker Desktop environment..."
+        echo "(This may take up to 60 seconds if Docker Desktop needs to restart)"
+        echo ""
+        # Source the fix library and call only the fix for this lab.
+        # Running all.sh (which fixes all 7 scenarios) was previously used
+        # here, but it was run in the background with output suppressed.
+        # For bridge (and any lab that requires a Docker restart), that made
+        # the restore appear to fail because the trainee could test before
+        # all.sh had finished its restart cycle. Running synchronously here
+        # means the trainee gets their terminal back only once the environment
+        # is genuinely restored.
+        local current_lower fix_func
+        current_lower=$(echo "$current" | tr '[:upper:]' '[:lower:]')
+        # Map scenario name to the fix_* function in lib/fix.sh
+        case "$current" in
+            PORT)       fix_func="fix_ports"      ;;
+            PROXY)      fix_func="fix_proxy"      ;;
+            PROXYFAIL)  fix_func="fix_proxyfail"  ;;
+            SSO)        fix_func="fix_sso"        ;;
+            BRIDGE)     fix_func="fix_bridge"     ;;
+            AUTHCONFIG) fix_func="fix_authconfig" ;;
+            DNS)        fix_func="fix_dns"        ;;
+            *)          fix_func=""              ;;
+        esac
+
+        if [ -n "$fix_func" ]; then
+            # Source fix.sh so its functions are available in this shell
+            # shellcheck disable=SC1091
+            source "$INSTALL_DIR/lib/fix.sh"
+            # PROXY, PROXYFAIL, SSO, and AUTHCONFIG write to settings files
+            # that Docker would overwrite on a clean shutdown if Docker were
+            # running when the fix writes them. Stop Docker first for those.
+            case "$current" in
+                PROXY|PROXYFAIL|SSO|AUTHCONFIG)
+                    stop_docker_desktop
+                    ;;
+            esac
+            $fix_func
+            # PROXY/PROXYFAIL/SSO/AUTHCONFIG: restart Docker Desktop now that
+            # the settings file edits are in place.
+            case "$current" in
+                PROXY|PROXYFAIL|SSO|AUTHCONFIG)
+                    echo ""
+                    echo "Restarting Docker Desktop with corrected settings..."
+                    systemctl --user start docker-desktop 2>/dev/null || true
+                    local i
+                    for i in $(seq 1 60); do
+                        if docker info > /dev/null 2>&1; then
+                            echo "  Docker Desktop ready"
+                            break
+                        fi
+                        sleep 2
+                    done
+                    ;;
+            esac
+        else
+            # Unknown scenario — fall back to full restore via all.sh
+            echo "y" | bash "$INSTALL_DIR/scenarios/all.sh"
+        fi
+
+        echo ""
+        echo "Environment restored. You can now start a new lab."
     else
         echo "Cancelled."
     fi
