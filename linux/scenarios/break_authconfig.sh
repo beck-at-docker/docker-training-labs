@@ -9,7 +9,7 @@
 # login attempt fires enforcement and triggers an immediate sign-out.
 #
 # On Linux, Docker Desktop stores its GUI settings in:
-#   ~/.docker/desktop/settings.json
+#   ~/.docker/desktop/settings-store.json
 #
 # Unlike proxy settings, allowedOrgs is a Docker Desktop-level key and has
 # no equivalent in daemon.json. This lab requires the settings.json file
@@ -29,7 +29,7 @@
 
 set -e
 
-DESKTOP_SETTINGS="$HOME/.docker/desktop/settings.json"
+DESKTOP_SETTINGS="$HOME/.docker/desktop/settings-store.json"
 BACKUP_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 echo "Breaking Docker Desktop..."
