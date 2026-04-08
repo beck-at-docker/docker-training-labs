@@ -8,11 +8,14 @@
 # Each fix_<scenario> function is idempotent: running it on an already-fixed
 # environment is safe and produces no harmful side effects.
 #
-# Scenarios that write to settings.json or daemon.json (PROXY, PROXYFAIL, SSO,
+# Scenarios that write to settings.json or daemon.json (PROXY, PROXYFAIL,
 # AUTHCONFIG) MUST be applied after Docker Desktop is stopped. Docker flushes
 # its in-memory configuration back to the settings file on a clean shutdown,
 # which would overwrite any changes written while the daemon was running.
-# Call stop_docker_desktop before invoking any of those four functions.
+# Call stop_docker_desktop before invoking any of those three functions.
+#
+# SSO is the exception: its fix operates on ~/.docker/config.json, which is
+# only read at login time and does not require the daemon to be stopped.
 #
 # Scenarios that operate via live iptables or container removal (DNS, BRIDGE,
 # PORT) require Docker to be running and do not need a restart to take effect.
@@ -200,63 +203,58 @@ PYEOF
     echo "Proxy failure configuration cleaned up"
 }
 
-# fix_sso - Remove the asymmetric ProxyExclude from settings.json/daemon.json.
+# fix_sso - Restore the Docker CLI credential store configuration.
 #
-# break_sso.sh sets a ProxyExclude list that covers the registry but not the
-# SSO login endpoints, causing auth to fail while pulls still work.
-# Checks both settings.json (primary) and daemon.json (fallback).
+# break_sso.sh on Linux corrupts ~/.docker/config.json by setting credsStore
+# to "desktop-broken", a credential helper binary that does not exist in PATH.
+# Docker can complete an auth flow (browser SSO or docker login both issue a
+# token), but the token save step fails because the helper binary is missing.
+# Docker Desktop immediately reverts to a signed-out state, producing a
+# sign-in loop.
 #
-# MUST be called after stop_docker_desktop.
+# Restores config.json from the backup written by break_sso.sh. If no backup
+# exists, removes the credsStore key so Docker falls back to its built-in
+# credential storage.
+#
+# config.json is only read at login time and is not held open by the daemon,
+# so Docker Desktop does not need to be stopped before calling this function.
 fix_sso() {
+    local config_file="$HOME/.docker/config.json"
     local latest_backup
-    echo "Removing broken SSO proxy configuration..."
 
-    # Primary: settings.json (present when Docker Desktop is installed)
-    if [ -f "$DESKTOP_SETTINGS" ]; then
-        echo "Checking Docker Desktop settings file..."
-        latest_backup=$(ls -t "${DESKTOP_SETTINGS}.backup-"* 2>/dev/null | head -1)
-        if [ -n "$latest_backup" ]; then
-            cp "$latest_backup" "$DESKTOP_SETTINGS"
-            echo "  Restored settings.json from backup: $(basename "$latest_backup")"
-        else
-            echo "  No backup found, resetting proxy keys to system mode"
-            python3 - "$DESKTOP_SETTINGS" << 'PYEOF'
+    echo "Restoring Docker CLI credential store configuration..."
+
+    if [ ! -f "$config_file" ]; then
+        echo "  ~/.docker/config.json not found - nothing to fix"
+        echo ""
+        echo "SSO credential store configuration cleaned up"
+        echo "NOTE: Sign back in with: docker login"
+        return
+    fi
+
+    echo "Checking ~/.docker/config.json..."
+    latest_backup=$(ls -t "${config_file}.backup-sso-"* 2>/dev/null | head -1)
+
+    if [ -n "$latest_backup" ]; then
+        cp "$latest_backup" "$config_file"
+        echo "  Restored config.json from backup: $(basename "$latest_backup")"
+    else
+        echo "  No backup found, removing broken credsStore key"
+        python3 - "$config_file" << 'PYEOF'
 import json, sys
 path = sys.argv[1]
 with open(path, 'r') as f:
     data = json.load(f)
-for key in ['ProxyHTTP', 'ProxyHTTPS', 'ProxyExclude',
-            'ContainersProxyHTTP', 'ContainersProxyHTTPS', 'ContainersProxyExclude']:
-    data.pop(key, None)
-data['ProxyHTTPMode']           = 'system'
-data['ContainersProxyHTTPMode'] = 'system'
+data.pop('credsStore', None)
 with open(path, 'w') as f:
-    json.dump(data, f, indent=2)
+    json.dump(data, f, indent=4)
 PYEOF
-            echo "  Proxy keys reset to system mode"
-        fi
-    fi
-
-    # Fallback: daemon.json (used if settings.json was absent during break)
-    if [ -f "$DAEMON_CONFIG" ]; then
-        echo "Checking daemon.json..."
-        if grep -q "192\.0\.2" "$DAEMON_CONFIG" 2>/dev/null; then
-            latest_backup=$(ls -t "${DAEMON_CONFIG}.backup-"* 2>/dev/null | head -1)
-            if [ -n "$latest_backup" ]; then
-                cp "$latest_backup" "$DAEMON_CONFIG"
-                echo "  Restored daemon.json from backup"
-            else
-                rm "$DAEMON_CONFIG"
-                echo "  Removed broken daemon.json (no backup found)"
-            fi
-        else
-            echo "  daemon.json is clean"
-        fi
+        echo "  credsStore key removed (Docker will use built-in default)"
     fi
 
     echo ""
-    echo "SSO proxy configuration cleaned up"
-    echo "NOTE: Sign back in manually after Docker Desktop restarts: docker login"
+    echo "SSO credential store configuration cleaned up"
+    echo "NOTE: Sign back in manually: docker login"
 }
 
 # fix_authconfig - Remove the corrupt allowedOrgs value from settings.json.
