@@ -52,20 +52,23 @@ stop_docker_desktop() {
 
 # fix_bridge - Restore the Docker bridge network.
 #
-# Removes the lab's test containers and ALL matching iptables DROP rules
-# injected by break_bridge.sh.
+# Removes the lab's test containers, drains ALL matching iptables DROP rules
+# injected by break_bridge.sh, then restarts Docker Desktop.
 #
-# A single iptables -D only removes the first matching rule. If break_bridge
-# was run more than once, multiple DROP rules may be stacked at the top of
-# FORWARD. The loop inside nsenter drains all of them in one container
-# invocation.
+# Why always restart:
+#   Removing the DROP rule via nsenter is necessary but not sufficient.
+#   While the DROP rule is active, Docker's own forwarding chains
+#   (DOCKER, DOCKER-ISOLATION-STAGE-1, DOCKER-ISOLATION-STAGE-2) can reach
+#   an inconsistent state — new containers added or removed during the break
+#   may leave orphaned or missing per-container rules. A restart forces Docker
+#   to rebuild all bridge-network iptables rules cleanly from scratch, which
+#   is the only fully reliable recovery path.
 #
-# If ping still fails after the rules are gone, Docker Desktop's own
-# forwarding chains (DOCKER, DOCKER-ISOLATION-STAGE-1/2) are likely in an
-# inconsistent state from having the DROP rule active. A restart forces
-# Docker to rebuild all bridge-network iptables rules cleanly.
+#   Additionally, `docker info` becoming available does not mean bridge setup
+#   is complete. A brief sleep + ping check after daemon-ready gives the
+#   bridge a moment to finish initialising before we declare success.
 #
-# Requires a running Docker daemon.
+# Requires a running Docker daemon (to remove containers and run nsenter).
 fix_bridge() {
     local removed_count
 
@@ -95,24 +98,16 @@ fix_bridge() {
     if [ "${removed_count:-0}" -gt 0 ]; then
         echo "  Removed ${removed_count} DROP rule(s)"
     else
-        echo "  No matching DROP rules found (already clean)"
+        echo "  No matching DROP rules found (may have already been removed)"
     fi
 
+    # Always restart Docker Desktop so it rebuilds its bridge forwarding
+    # chains (DOCKER, DOCKER-ISOLATION-STAGE-*) cleanly. Relying on a
+    # post-nsenter ping to decide whether a restart is needed is unreliable:
+    # the nsenter failure is silently swallowed, and docker info readiness
+    # races ahead of bridge network initialisation.
     echo ""
-    echo "Verifying network connectivity..."
-    if docker run --rm alpine:latest ping -c 2 8.8.8.8 > /dev/null 2>&1; then
-        echo "  Internet connectivity restored"
-        return 0
-    fi
-
-    # Ping still fails after rule removal. Docker Desktop's own forwarding
-    # chains can be left in a degraded state while the DROP rule was active.
-    # A restart rebuilds those chains cleanly.
-    echo "  Connectivity still broken after rule removal."
-    echo "  Docker's internal bridge rules may be in an inconsistent state."
-    echo "  Restarting Docker Desktop to rebuild bridge networking..."
-    echo ""
-
+    echo "Restarting Docker Desktop to rebuild bridge networking..."
     stop_docker_desktop
 
     echo "  Starting Docker Desktop..."
@@ -133,8 +128,12 @@ fix_bridge() {
         return 1
     fi
 
+    # Brief pause: docker info can return before Docker has finished
+    # rebuilding the docker0 bridge iptables rules.
+    sleep 3
+
     echo ""
-    echo "Verifying network connectivity after restart..."
+    echo "Verifying network connectivity..."
     if docker run --rm alpine:latest ping -c 2 8.8.8.8 > /dev/null 2>&1; then
         echo "  Internet connectivity restored"
     else
