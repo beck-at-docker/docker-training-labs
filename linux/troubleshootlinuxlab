@@ -889,11 +889,12 @@ abandon_lab() {
             # Source fix.sh so its functions are available in this shell
             # shellcheck disable=SC1091
             source "$INSTALL_DIR/lib/fix.sh"
-            # PROXY, PROXYFAIL, SSO, and AUTHCONFIG write to settings files
+            # PROXY, SSO, and AUTHCONFIG write to settings files
             # that Docker would overwrite on a clean shutdown if Docker were
             # running when the fix writes them. Stop Docker first for those.
+            # PROXYFAIL uses the backend API while Docker is running - no stop needed.
             case "$current" in
-                PROXY|PROXYFAIL|SSO|AUTHCONFIG)
+                PROXY|SSO|AUTHCONFIG)
                     stop_docker_desktop
                     ;;
             esac

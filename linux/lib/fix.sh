@@ -259,27 +259,77 @@ fix_proxy() {
     echo "Run 'fix-docker-proxy' in this terminal to clear any lingering env vars."
 }
 
-# fix_proxyfail - Remove the loopback proxy address from settings.json/daemon.json.
+# fix_proxyfail - Restore proxy settings via the backend API.
 #
-# break_proxyfail.sh sets ProxyHTTP/HTTPS to 127.0.0.1:9753 which causes an
-# immediate connection-refused error on every pull. Checks both settings.json
-# (primary, when Docker Desktop is installed) and daemon.json (fallback).
+# break_proxyfail.sh sets a loopback proxy (127.0.0.1:9753) via the backend
+# socket API. This function restores proxy mode to system via the same API
+# while Docker Desktop is running.
 #
-# MUST be called after stop_docker_desktop.
+# Falls back to restoring settings-store.json from backup if the socket is
+# unavailable. In that case Docker Desktop must be restarted manually.
+#
+# Does NOT require stop_docker_desktop.
 fix_proxyfail() {
     local latest_backup
+    local backend_sock="$HOME/.docker/desktop/backend.sock"
     echo "Removing broken loopback proxy configuration..."
 
-    # Primary: settings.json (present when Docker Desktop is installed)
-    if [ -f "$DESKTOP_SETTINGS" ]; then
-        echo "Checking Docker Desktop settings file..."
-        latest_backup=$(ls -t "${DESKTOP_SETTINGS}.backup-proxyfail-"* 2>/dev/null | head -1)
+    if [ -S "$backend_sock" ]; then
+        echo "Restoring proxy settings via Docker Desktop backend API..."
+        HTTP_STATUS=$(curl \
+            --silent \
+            --unix-socket "$backend_sock" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -w "%{http_code}" \
+            -o /tmp/proxyfail-fix-response.txt \
+            "http://localhost/app/settings" \
+            -d '{
+                "vm": {
+                    "proxy": {
+                        "mode":    {"value": "system"},
+                        "http":    {"value": ""},
+                        "https":   {"value": ""},
+                        "exclude": {"value": ""}
+                    },
+                    "containersProxy": {
+                        "mode":    {"value": "system"},
+                        "http":    {"value": ""},
+                        "https":   {"value": ""},
+                        "exclude": {"value": ""}
+                    }
+                }
+            }' 2>&1) || true
+        rm -f /tmp/proxyfail-fix-response.txt
+
+        if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "204" ]; then
+            echo "  Proxy reset to system mode via API (HTTP $HTTP_STATUS)"
+        else
+            echo "  Warning: API returned HTTP $HTTP_STATUS - falling back to file restore"
+            _fix_proxyfail_file_fallback
+        fi
+    else
+        echo "  Backend socket not available - falling back to file restore"
+        echo "  Docker Desktop will need to be restarted for the fix to take effect"
+        _fix_proxyfail_file_fallback
+    fi
+
+    echo ""
+    echo "Proxy failure configuration cleaned up"
+}
+
+# _fix_proxyfail_file_fallback - Restore settings-store.json from backup.
+# Used when the backend socket is unavailable (Docker Desktop fully stopped).
+_fix_proxyfail_file_fallback() {
+    local latest_backup
+    if [ -f "$SETTINGS_STORE" ]; then
+        latest_backup=$(ls -t "${SETTINGS_STORE}.backup-proxyfail-"* 2>/dev/null | head -1)
         if [ -n "$latest_backup" ]; then
-            cp "$latest_backup" "$DESKTOP_SETTINGS"
-            echo "  Restored settings.json from backup: $(basename "$latest_backup")"
+            cp "$latest_backup" "$SETTINGS_STORE"
+            echo "  Restored settings-store.json from backup: $(basename "$latest_backup")"
         else
             echo "  No backup found, resetting proxy keys to system mode"
-            python3 - "$DESKTOP_SETTINGS" << 'PYEOF'
+            python3 - "$SETTINGS_STORE" << 'PYEOF'
 import json, sys
 path = sys.argv[1]
 with open(path, 'r') as f:
@@ -294,27 +344,9 @@ with open(path, 'w') as f:
 PYEOF
             echo "  Proxy keys reset to system mode"
         fi
+    else
+        echo "  Settings store not found - nothing to restore"
     fi
-
-    # Fallback: daemon.json (used if settings.json was absent during break)
-    if [ -f "$DAEMON_CONFIG" ]; then
-        echo "Checking daemon.json..."
-        if grep -q "9753" "$DAEMON_CONFIG" 2>/dev/null; then
-            latest_backup=$(ls -t "${DAEMON_CONFIG}.backup-proxyfail-"* 2>/dev/null | head -1)
-            if [ -n "$latest_backup" ]; then
-                cp "$latest_backup" "$DAEMON_CONFIG"
-                echo "  Restored daemon.json from backup"
-            else
-                rm "$DAEMON_CONFIG"
-                echo "  Removed broken daemon.json (no backup found)"
-            fi
-        else
-            echo "  daemon.json is clean"
-        fi
-    fi
-
-    echo ""
-    echo "Proxy failure configuration cleaned up"
 }
 
 # fix_sso - Restore the Docker CLI credential store configuration.
