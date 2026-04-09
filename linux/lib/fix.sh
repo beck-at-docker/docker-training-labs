@@ -8,14 +8,21 @@
 # Each fix_<scenario> function is idempotent: running it on an already-fixed
 # environment is safe and produces no harmful side effects.
 #
-# Scenarios that write to settings-store.json or daemon.json (PROXY, PROXYFAIL)
-# MUST be applied after Docker Desktop is stopped. Docker flushes
-# its in-memory configuration back to the settings file on a clean shutdown,
-# which would overwrite any changes written while the daemon was running.
-# Call stop_docker_desktop before invoking any of those three functions.
+# Scenario requirements at a glance:
 #
-# SSO is the exception: its fix operates on ~/.docker/config.json, which is
-# only read at login time and does not require the daemon to be stopped.
+#   Docker must be RUNNING:  DNS, PORT, BRIDGE, PROXY, PROXYFAIL
+#   Docker must be STOPPED:  (none on this platform)
+#   Docker state irrelevant: SSO, AUTHCONFIG
+#
+# PROXY and PROXYFAIL use the backend socket API while Docker is running.
+# They fall back to editing settings-store.json if the socket is unavailable,
+# but that fallback requires a manual Docker Desktop restart.
+#
+# SSO operates on ~/.docker/config.json, which is only read at login time
+# and does not require the daemon to be stopped.
+#
+# AUTHCONFIG removes /usr/share/docker-desktop/registry/registry.json,
+# which is read at startup - the fix takes effect on the next restart.
 #
 # Scenarios that operate via live iptables or container removal (DNS, BRIDGE,
 # PORT) require Docker to be running and do not need a restart to take effect.
@@ -148,12 +155,20 @@ _wait_for_bridge() {
             echo "=== FORWARD chain ==="
             iptables -L FORWARD -n -v 2>&1 || echo "(iptables not available)"
             echo ""
+            echo "=== DOCKER-USER chain ==="
+            iptables -L DOCKER-USER -n -v 2>&1 || echo "(DOCKER-USER not found)"
+            echo ""
             echo "=== DOCKER-FORWARD chain ==="
             iptables -L DOCKER-FORWARD -n -v 2>&1 || echo "(DOCKER-FORWARD not found)"
             echo ""
-            echo "=== DOCKER-ISOLATION chains ==="
-            iptables -L DOCKER-ISOLATION-STAGE-1 -n -v 2>&1 || echo "(DOCKER-ISOLATION-STAGE-1 not found)"
-            iptables -L DOCKER-ISOLATION-STAGE-2 -n -v 2>&1 || echo "(DOCKER-ISOLATION-STAGE-2 not found)"
+            echo "=== DOCKER-CT chain ==="
+            iptables -L DOCKER-CT -n -v 2>&1 || echo "(DOCKER-CT not found)"
+            echo ""
+            echo "=== DOCKER-INTERNAL chain ==="
+            iptables -L DOCKER-INTERNAL -n -v 2>&1 || echo "(DOCKER-INTERNAL not found)"
+            echo ""
+            echo "=== DOCKER-BRIDGE chain ==="
+            iptables -L DOCKER-BRIDGE -n -v 2>&1 || echo "(DOCKER-BRIDGE not found)"
             echo ""
             echo "=== nat POSTROUTING ==="
             iptables -t nat -L POSTROUTING -n -v 2>&1 || echo "(nat POSTROUTING check failed)"
@@ -170,9 +185,33 @@ _wait_for_bridge() {
             echo "=== docker0 link ==="
             ip link show docker0 2>&1 || echo "(docker0 not found)"
             echo ""
-            echo "=== routes ==="
+            echo "=== routes (main table) ==="
             ip route show 2>&1
+            echo ""
+            echo "=== routes (all tables) ==="
+            ip route show table all 2>&1
+            echo ""
+            echo "=== policy routing rules ==="
+            ip rule show 2>&1
         ' 2>/dev/null || echo "  (nsenter failed - cannot read VM state)"
+    echo ""
+    echo "  --- Diagnostic: container gateway reachability ---"
+    # Test whether a container can reach docker0 (the gateway) at all.
+    # If this succeeds but ping to 8.8.8.8 fails, the block is in
+    # forwarding or NAT — not in the container's local connectivity.
+    local gw
+    gw=$(docker network inspect bridge \
+        --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}' 2>/dev/null)
+    if [ -n "$gw" ]; then
+        echo "  docker0 gateway: $gw"
+        if docker run --rm alpine:latest ping -c 1 -W 3 "$gw" > /dev/null 2>&1; then
+            echo "  ping $gw: OK (container reaches gateway)"
+        else
+            echo "  ping $gw: FAIL (container cannot reach its own gateway)"
+        fi
+    else
+        echo "  Could not determine docker0 gateway IP"
+    fi
     echo "  --- End diagnostic ---"
     echo ""
     echo "  To inspect manually:"
@@ -212,34 +251,90 @@ fix_dns() {
     fi
 }
 
-# fix_proxy - Remove the bogus proxy from daemon.json and RC files.
+# fix_proxy - Restore proxy settings via the Docker Desktop backend API.
 #
-# On Linux, break_proxy.sh writes an unroutable address to daemon.json.
-# Docker Desktop also reads daemon.json for proxy settings on this platform.
-# Also strips the break-sentinel block from shell RC files.
+# break_proxy.sh applies an unroutable proxy (192.0.2.1:8080) via the backend
+# socket API. This function restores proxy mode to "system" via the same API
+# while Docker Desktop is running.
 #
-# MUST be called after stop_docker_desktop.
+# Falls back to restoring settings-store.json from backup if the socket is
+# unavailable. In that case Docker Desktop must be restarted manually.
+#
+# Also strips the break-sentinel block from shell RC files that
+# break_proxy.sh may have injected.
+#
+# Does NOT require stop_docker_desktop - Docker Desktop must be running.
 fix_proxy() {
-    local latest_backup rc_file
+    local rc_file
+    local backend_sock="$HOME/.docker/desktop/backend.sock"
     echo "Removing broken proxy configuration..."
 
-    echo "Checking daemon.json..."
+    # ------------------------------------------------------------------
+    # Restore system proxy mode via the backend API.
+    #
+    # Passing empty strings for http/https clears the proxy addresses.
+    # Mode "system" tells Docker Desktop to follow OS network settings
+    # rather than any manually configured proxy.
+    # ------------------------------------------------------------------
+    if [ -S "$backend_sock" ]; then
+        echo "Restoring proxy settings via Docker Desktop backend API..."
+        HTTP_STATUS=$(curl \
+            --silent \
+            --unix-socket "$backend_sock" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -w "%{http_code}" \
+            -o /tmp/proxy-fix-api-response.txt \
+            "http://localhost/app/settings" \
+            -d '{
+                "vm": {
+                    "proxy": {
+                        "mode":    {"value": "system"},
+                        "http":    {"value": ""},
+                        "https":   {"value": ""},
+                        "exclude": {"value": ""}
+                    },
+                    "containersProxy": {
+                        "mode":    {"value": "system"},
+                        "http":    {"value": ""},
+                        "https":   {"value": ""},
+                        "exclude": {"value": ""}
+                    }
+                }
+            }' 2>&1) || true
+        rm -f /tmp/proxy-fix-api-response.txt
+
+        if [ "$HTTP_STATUS" = "200" ] || [ "$HTTP_STATUS" = "204" ]; then
+            echo "  Proxy reset to system mode via API (HTTP $HTTP_STATUS)"
+        else
+            echo "  Warning: API returned HTTP $HTTP_STATUS - falling back to file restore"
+            _fix_proxy_file_fallback
+        fi
+    else
+        echo "  Backend socket not available - falling back to file restore"
+        echo "  Docker Desktop will need to be restarted for the fix to take effect"
+        _fix_proxy_file_fallback
+    fi
+
+    # ------------------------------------------------------------------
+    # Also clean up daemon.json in case the old break script wrote there.
+    # This is a transitional cleanup - new break_proxy.sh no longer writes
+    # to daemon.json, but previously-broken environments may still have it.
+    # ------------------------------------------------------------------
     if [ -f "$DAEMON_CONFIG" ]; then
         if grep -q "192\.0\.2\.1" "$DAEMON_CONFIG" 2>/dev/null; then
-            echo "  Found broken proxy config in daemon.json"
+            echo ""
+            echo "  Found stale proxy config in daemon.json (from old break script)"
+            local latest_backup
             latest_backup=$(ls -t "${DAEMON_CONFIG}.backup"* 2>/dev/null | head -1)
             if [ -n "$latest_backup" ]; then
                 cp "$latest_backup" "$DAEMON_CONFIG"
-                echo "  Restored from backup: $latest_backup"
+                echo "  Restored daemon.json from backup: $latest_backup"
             else
                 rm "$DAEMON_CONFIG"
                 echo "  Removed broken daemon.json (no backup found)"
             fi
-        else
-            echo "  daemon.json is clean"
         fi
-    else
-        echo "  No daemon.json found"
     fi
 
     echo ""
@@ -256,7 +351,37 @@ fix_proxy() {
 
     echo ""
     echo "Proxy configuration cleaned up"
-    echo "Run 'fix-docker-proxy' in this terminal to clear any lingering env vars."
+}
+
+# _fix_proxy_file_fallback - Restore settings-store.json from backup.
+# Used when the backend socket is unavailable (Docker Desktop fully stopped).
+_fix_proxy_file_fallback() {
+    local latest_backup
+    if [ -f "$DESKTOP_SETTINGS" ]; then
+        latest_backup=$(ls -t "${DESKTOP_SETTINGS}.backup-proxy-"* 2>/dev/null | head -1)
+        if [ -n "$latest_backup" ]; then
+            cp "$latest_backup" "$DESKTOP_SETTINGS"
+            echo "  Restored settings-store.json from backup: $(basename "$latest_backup")"
+        else
+            echo "  No proxy backup found, resetting proxy keys to system mode"
+            python3 - "$DESKTOP_SETTINGS" << 'PYEOF'
+import json, sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    data = json.load(f)
+for key in ['ProxyHTTP', 'ProxyHTTPS', 'ProxyExclude',
+            'ContainersProxyHTTP', 'ContainersProxyHTTPS', 'ContainersProxyExclude']:
+    data.pop(key, None)
+data['ProxyHTTPMode']           = 'system'
+data['ContainersProxyHTTPMode'] = 'system'
+with open(path, 'w') as f:
+    json.dump(data, f, indent=2)
+PYEOF
+            echo "  Proxy keys reset to system mode"
+        fi
+    else
+        echo "  Settings store not found - nothing to restore"
+    fi
 }
 
 # fix_proxyfail - Restore proxy settings via the backend API.
@@ -322,14 +447,14 @@ fix_proxyfail() {
 # Used when the backend socket is unavailable (Docker Desktop fully stopped).
 _fix_proxyfail_file_fallback() {
     local latest_backup
-    if [ -f "$SETTINGS_STORE" ]; then
-        latest_backup=$(ls -t "${SETTINGS_STORE}.backup-proxyfail-"* 2>/dev/null | head -1)
+    if [ -f "$DESKTOP_SETTINGS" ]; then
+        latest_backup=$(ls -t "${DESKTOP_SETTINGS}.backup-proxyfail-"* 2>/dev/null | head -1)
         if [ -n "$latest_backup" ]; then
-            cp "$latest_backup" "$SETTINGS_STORE"
+            cp "$latest_backup" "$DESKTOP_SETTINGS"
             echo "  Restored settings-store.json from backup: $(basename "$latest_backup")"
         else
             echo "  No backup found, resetting proxy keys to system mode"
-            python3 - "$SETTINGS_STORE" << 'PYEOF'
+            python3 - "$DESKTOP_SETTINGS" << 'PYEOF'
 import json, sys
 path = sys.argv[1]
 with open(path, 'r') as f:

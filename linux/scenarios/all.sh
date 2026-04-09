@@ -90,46 +90,41 @@ failed_steps=()
 # Phase 1: fixes that require Docker to be running.
 #
 # Bridge and DNS inject iptables rules inside the VM via nsenter, which
-# requires a running daemon. Port cleanup uses docker rm. All three must
-# run before Docker Desktop is stopped.
+# requires a running daemon. Port cleanup uses docker rm. Proxy and
+# ProxyFail use the Docker Desktop backend socket API, which also
+# requires a running daemon. All five must run before Docker Desktop
+# is stopped.
 # ------------------------------------------------------------------
-run_section "[1/7] Bridge Network" fix_bridge
-run_section "[2/7] DNS Resolution" fix_dns
-run_section "[7/7] Port Conflicts" fix_ports
-
-# ------------------------------------------------------------------
-# Stop Docker Desktop BEFORE writing to settings.json / daemon.json.
-#
-# Docker flushes its in-memory configuration back to the settings file
-# on a clean shutdown. Writing fixes while Docker is running and then
-# stopping it gracefully would cause that flush to overwrite the changes.
-# Stopping the process first eliminates that race entirely.
-# ------------------------------------------------------------------
-echo ""
-echo "--- Stopping Docker Desktop ---"
-echo ""
-
-stop_docker_desktop
-echo ""
-echo "=========================================="
-
-# ------------------------------------------------------------------
-# Phase 2: fixes that write to settings.json / daemon.json.
-#
-# Docker Desktop is stopped so these writes are safe - there is no
-# running process to flush in-memory state back over the changes.
-# ------------------------------------------------------------------
+run_section "[1/7] Bridge Network"           fix_bridge
+run_section "[2/7] DNS Resolution"           fix_dns
 run_section "[3/7] Proxy Configuration"      fix_proxy
 run_section "[4/7] Proxy Failure Simulation" fix_proxyfail
+run_section "[7/7] Port Conflicts"           fix_ports
+
+# ------------------------------------------------------------------
+# Phase 2: fixes that do NOT require Docker to be running or stopped.
+#
+# SSO edits ~/.docker/config.json, which is only read at login time.
+# AuthConfig removes registry.json, which is read at startup. Neither
+# file is held open by Docker Desktop, so these fixes are safe to run
+# regardless of Docker's state.
+# ------------------------------------------------------------------
 run_section "[5/7] SSO Configuration"        fix_sso
 run_section "[6/7] Auth Config Enforcement"  fix_authconfig
 
 # ------------------------------------------------------------------
-# Relaunch Docker Desktop with the corrected settings.
+# Restart Docker Desktop to pick up any residual state changes.
+#
+# The API-based fixes (proxy, proxyfail) apply changes live, so a
+# restart is not strictly needed for those. SSO and AuthConfig changes
+# take effect on the next startup. Restarting here ensures everything
+# is in a clean, consistent state.
 # ------------------------------------------------------------------
 echo ""
 echo "--- Restarting Docker Desktop ---"
 echo ""
+
+stop_docker_desktop
 
 if systemctl --user start docker-desktop 2>/dev/null; then
     echo "  Start signal sent via systemctl"
@@ -138,7 +133,6 @@ else
     echo "  Please restart Docker Desktop manually before continuing"
 fi
 
-echo "Docker Desktop must be started manually..."
 echo "Waiting for Docker Desktop to restart..."
 DOCKER_READY=0
 for i in $(seq 1 60); do

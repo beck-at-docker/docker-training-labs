@@ -225,43 +225,43 @@ Your Docker cannot pull images or access external resources.
 This is likely due to proxy misconfiguration.
 
 Symptoms you should observe:
-  - docker pull fails with a proxy connection error
+  - docker pull fails with a proxy connection error (may time out)
   - Containers can't reach the internet
   - Host machine internet access works fine
 
-On Linux, proxy config lives in two places:
+On Docker Desktop for Linux, proxy config can live in several
+places. The Docker Desktop settings UI (Settings > Resources >
+Proxies) is the primary control, but the underlying config is
+persisted to:
 
-  Layer 1: Daemon config (requires Docker restart after editing)
+  Layer 1: Docker Desktop settings
+    ~/.docker/desktop/settings-store.json
 
-    Docker Desktop for Linux:  ~/.docker/daemon.json
-    Docker Engine (plain):     /etc/docker/daemon.json  (needs sudo)
+    Look for keys like ProxyHTTPMode, ProxyHTTP, ProxyHTTPS.
+    If ProxyHTTPMode is "manual", Docker Desktop uses whatever
+    addresses are in ProxyHTTP/ProxyHTTPS instead of following
+    the system proxy.
 
-    These are NOT interchangeable. Docker Desktop ignores
-    /etc/docker/daemon.json, and Docker Engine ignores
-    ~/.docker/daemon.json. Writing the wrong file has no effect.
-
-    To identify which flavor you have:
-      docker info --format '{{.OperatingSystem}}'
-      (returns "Docker Desktop" or your Linux distro name)
+    You can also check what the daemon is actually using:
+      docker info | grep -i proxy
 
   Layer 2: Shell environment variables
     ~/.bashrc  or  ~/.bash_profile
 
-    NOTE: Shell env vars affect only the Docker CLI - NOT the
-    daemon. The daemon runs as a systemd service with its own
-    isolated environment. Fixing only the shell RC will not
-    resolve docker pull failures.
+    NOTE: Shell env vars affect only the Docker CLI process -
+    NOT the daemon. The daemon runs as a systemd service with
+    its own isolated environment. Fixing only the shell RC will
+    not resolve docker pull failures.
 
 Diagnostic Commands to Try:
   docker pull hello-world
   docker info | grep -i proxy
-  docker info --format '{{.OperatingSystem}}'
-  cat ~/.docker/daemon.json          # Docker Desktop path
-  sudo cat /etc/docker/daemon.json   # Docker Engine path
+  cat ~/.docker/desktop/settings-store.json
   env | grep -i proxy
 
 Look for:
-  - Invalid proxy hostnames or unroutable addresses in daemon.json
+  - docker info showing an unroutable proxy address (e.g. 192.0.2.x)
+  - ProxyHTTPMode set to "manual" in settings-store.json
   - HTTP_PROXY / HTTPS_PROXY set in your shell environment
 
 Fix both layers to fully resolve the issue!
@@ -889,12 +889,13 @@ abandon_lab() {
             # Source fix.sh so its functions are available in this shell
             # shellcheck disable=SC1091
             source "$INSTALL_DIR/lib/fix.sh"
-            # PROXY, SSO, and AUTHCONFIG write to settings files
-            # that Docker would overwrite on a clean shutdown if Docker were
-            # running when the fix writes them. Stop Docker first for those.
-            # PROXYFAIL uses the backend API while Docker is running - no stop needed.
+            # SSO and AUTHCONFIG edit config files that Docker would overwrite
+            # on a clean shutdown if Docker were running when the fix writes
+            # them. Stop Docker first for those.
+            # PROXY and PROXYFAIL use the backend API while Docker is running
+            # - no stop needed (stopping would break the API call).
             case "$current" in
-                PROXY|SSO|AUTHCONFIG)
+                SSO|AUTHCONFIG)
                     stop_docker_desktop
                     ;;
             esac
@@ -904,8 +905,10 @@ abandon_lab() {
             local fix_exit=${PIPESTATUS[0]}
             echo "" | tee -a "$log_file"
             echo "Full output saved to: $log_file" | tee -a "$log_file"
-            # PROXY/PROXYFAIL/SSO/AUTHCONFIG: restart Docker Desktop now that
-            # the settings file edits are in place.
+            # SSO/AUTHCONFIG: restart Docker Desktop now that the settings
+            # file edits are in place. PROXY/PROXYFAIL: the API applies
+            # changes live, but restart is a safety net for the file-fallback
+            # path used when the backend socket is unavailable.
             case "$current" in
                 PROXY|PROXYFAIL|SSO|AUTHCONFIG)
                     echo ""
