@@ -1,39 +1,37 @@
 #!/bin/bash
 # scenarios/break_authconfig.sh - Simulates an org enforcement misconfiguration
-# in Docker Desktop's settings file.
+# via a registry.json file with a wrong organization slug.
 #
-# Based on real support cases where Docker Desktop immediately signed users out
-# after SSO because allowedOrgs was set to a URL-format value instead of a
-# plain organization slug. Docker Desktop's org enforcement check matches
-# against plain slugs only - a URL value never matches any real org, so every
-# login attempt fires enforcement and triggers an immediate sign-out.
+# Based on real support cases where an admin pushed a registry.json file via
+# MDM with the wrong org slug. Docker Desktop reads registry.json on startup
+# and enforces sign-in: the user must be a member of one of the listed orgs.
+# If the slug doesn't match any org the user belongs to, DD signs them out
+# immediately after every login attempt.
 #
-# On Linux, Docker Desktop stores its GUI settings in:
-#   ~/.docker/desktop/settings-store.json
+# On Linux, Docker Desktop reads sign-in enforcement config from:
+#   /usr/share/docker-desktop/registry/registry.json
 #
-# Unlike proxy settings, allowedOrgs is a Docker Desktop-level key and has
-# no equivalent in daemon.json. This lab requires the settings.json file
-# to exist; it will error out if Docker Desktop has not been fully initialised.
+# This file is owned by root and requires sudo to create or modify, which
+# reflects how it would be deployed in a real environment (MDM or admin script).
 #
 # The break does two things:
 #
 #   1. docker logout: clears stored Docker Hub credentials while Docker Desktop
 #      is still running, so the credential helper (docker-credential-desktop)
-#      can execute cleanly. This must happen before DD is stopped - calling
-#      logout against a stopped daemon silently fails because the helper binary
-#      is part of the DD process.
+#      can execute cleanly. Calling logout after DD is stopped silently fails
+#      because the helper binary is part of the DD process.
 #
-#   2. settings-store.json: writes a URL-format array to allowedOrgs
-#      (e.g. ["https://hub.docker.com/u/required-org"]) instead of the correct
-#      plain-slug format (e.g. ["required-org"]). The enforcement check runs
-#      on sign-in and immediately signs the user out because no slug matches.
+#   2. registry.json: creates the enforcement file with a wrong-but-valid org
+#      slug ("acme-corp"). The trainee's account is not a member of this org,
+#      so every sign-in attempt triggers enforcement and immediately signs
+#      them out.
 #
-# Docker Desktop is restarted after the settings change.
+# Docker Desktop is restarted after the registry.json is written.
 
 set -e
 
-DESKTOP_SETTINGS="$HOME/.docker/desktop/settings-store.json"
-BACKUP_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+REGISTRY_DIR="/usr/share/docker-desktop/registry"
+REGISTRY_JSON="$REGISTRY_DIR/registry.json"
 
 echo "Breaking Docker Desktop..."
 
@@ -43,95 +41,48 @@ if ! docker info &>/dev/null; then
     exit 1
 fi
 
-# Verify the settings file exists - allowedOrgs is a Docker Desktop GUI key
-# with no daemon.json equivalent, so we cannot proceed without it.
-if [ ! -f "$DESKTOP_SETTINGS" ]; then
-    echo "Error: Docker Desktop settings file not found at:"
-    echo "  $DESKTOP_SETTINGS"
-    echo "Docker Desktop must be fully initialised before running this lab."
-    exit 1
-fi
-
 # ------------------------------------------------------------------
 # Sign out of Docker Hub while DD is still running.
 #
 # docker-credential-desktop is part of the Docker Desktop process. Calling
 # docker logout after DD is stopped silently fails - the helper binary is
-# unavailable, so credentials are never erased and the trainee stays signed
-# in. Running logout here, while DD is confirmed running, ensures the
-# credential helper executes and the trainee must sign in to trigger the
-# enforcement failure.
+# unavailable so credentials are never erased and the trainee stays signed in.
+# Running logout here, while DD is confirmed running, ensures the credential
+# helper executes and the trainee must sign in to trigger the enforcement loop.
 # ------------------------------------------------------------------
 docker logout > /dev/null 2>&1 || true
-echo "Docker Hub credentials cleared"
+echo "  Docker Hub credentials cleared"
 
 # ------------------------------------------------------------------
-# Stop Docker Desktop BEFORE modifying settings-store.json.
+# Write the enforcement file with a wrong org slug.
 #
-# Docker Desktop persists its in-memory configuration back to the settings
-# file on clean shutdown. Writing the broken settings first and then quitting
-# would cause the graceful shutdown to overwrite our changes. Stopping the
-# process first prevents that race.
+# /usr/share/docker-desktop/registry/ is owned by root. We write the file
+# with sudo, which mirrors how this file would arrive in a real environment
+# (pushed by MDM or an admin provisioning script). The trainee's account is
+# not a member of "acme-corp", so enforcement fires on every sign-in attempt.
 # ------------------------------------------------------------------
 echo ""
-echo "Stopping Docker Desktop before modifying settings..."
+echo "Writing registry.json with wrong org slug..."
 
-if systemctl --user stop docker-desktop 2>/dev/null; then
-    echo "  Stopped via systemctl"
-else
-    pkill -f "docker-desktop" 2>/dev/null || true
-    echo "  Stopped via pkill"
-fi
+sudo mkdir -p "$REGISTRY_DIR"
+echo '{"allowedOrgs":["acme-corp"]}' | sudo tee "$REGISTRY_JSON" > /dev/null
+sudo chmod 644 "$REGISTRY_JSON"
 
-# Wait for the Docker Desktop process to exit
-for i in $(seq 1 15); do
-    if ! pgrep -f "docker-desktop" > /dev/null 2>&1; then
-        break
-    fi
-    sleep 1
-done
+echo "  Enforcement file written: $REGISTRY_JSON"
 
 # ------------------------------------------------------------------
-# Corrupt the allowedOrgs value in settings.json.
-#
-# The correct format for org enforcement is a JSON array of plain org
-# slugs: ["my-org-name"]. We write a URL-format value instead. Docker
-# Desktop's enforcement check will never match this against any real org
-# slug, so every sign-in attempt results in an immediate sign-out loop.
-# ------------------------------------------------------------------
-cp "$DESKTOP_SETTINGS" "${DESKTOP_SETTINGS}.backup-auth-${BACKUP_TIMESTAMP}"
-
-python3 - "$DESKTOP_SETTINGS" << 'EOF'
-import json, sys
-
-path = sys.argv[1]
-with open(path, 'r') as f:
-    data = json.load(f)
-
-# URL-format value - the correct format is just the org slug (e.g.
-# "my-company"), not a full URL with scheme and path components.
-data['allowedOrgs'] = ["https://hub.docker.com/u/required-org"]
-
-with open(path, 'w') as f:
-    json.dump(data, f, indent=2)
-EOF
-
-echo "  Docker Desktop settings updated"
-
-# ------------------------------------------------------------------
-# Restart Docker Desktop so it reads the updated settings.
+# Restart Docker Desktop so it picks up the new registry.json.
 # ------------------------------------------------------------------
 echo ""
-echo "Restarting Docker Desktop to apply settings..."
+echo "Restarting Docker Desktop to apply enforcement config..."
 
-if systemctl --user start docker-desktop 2>/dev/null; then
+if systemctl --user restart docker-desktop 2>/dev/null; then
     echo "  Restart signal sent via systemctl"
 else
-    echo "  Warning: Could not restart Docker Desktop automatically via systemctl"
+    echo "  Warning: Could not restart Docker Desktop via systemctl"
     echo "  Please restart Docker Desktop manually before attempting to sign in"
 fi
 
-echo "Docker Desktop must be started manually..."
 echo "  Waiting for Docker Desktop to restart..."
 DOCKER_READY=0
 for i in $(seq 1 30); do
@@ -149,6 +100,5 @@ fi
 
 echo ""
 echo "Docker Desktop broken"
-echo "Backup saved: ${DESKTOP_SETTINGS}.backup-auth-${BACKUP_TIMESTAMP}"
 echo ""
-echo "Symptom: Sign-in loop - login completes but Docker Desktop immediately signs out"
+echo "Symptom: Sign in required - login completes but Docker Desktop immediately signs out"

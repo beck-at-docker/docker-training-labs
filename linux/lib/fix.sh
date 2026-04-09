@@ -8,8 +8,8 @@
 # Each fix_<scenario> function is idempotent: running it on an already-fixed
 # environment is safe and produces no harmful side effects.
 #
-# Scenarios that write to settings.json or daemon.json (PROXY, PROXYFAIL,
-# AUTHCONFIG) MUST be applied after Docker Desktop is stopped. Docker flushes
+# Scenarios that write to settings-store.json or daemon.json (PROXY, PROXYFAIL)
+# MUST be applied after Docker Desktop is stopped. Docker flushes
 # its in-memory configuration back to the settings file on a clean shutdown,
 # which would overwrite any changes written while the daemon was running.
 # Call stop_docker_desktop before invoking any of those three functions.
@@ -20,7 +20,7 @@
 # Scenarios that operate via live iptables or container removal (DNS, BRIDGE,
 # PORT) require Docker to be running and do not need a restart to take effect.
 
-DESKTOP_SETTINGS="$HOME/.docker/desktop/settings.json"
+DESKTOP_SETTINGS="$HOME/.docker/desktop/settings-store.json"
 DAEMON_CONFIG="$HOME/.docker/daemon.json"
 
 # stop_docker_desktop - Stop Docker Desktop and wait for the process to exit.
@@ -371,42 +371,27 @@ PYEOF
     echo "NOTE: Sign back in manually: docker login"
 }
 
-# fix_authconfig - Remove the corrupt allowedOrgs value from settings.json.
+# fix_authconfig - Remove the registry.json enforcement file.
 #
-# break_authconfig.sh sets allowedOrgs to a URL-format value instead of a
-# plain org slug, causing the sign-in loop. Only uses settings.json — there
-# is no daemon.json fallback for this scenario.
+# break_authconfig.sh creates /usr/share/docker-desktop/registry/registry.json
+# with a wrong org slug, causing a sign-in enforcement loop. Removing the file
+# disables enforcement entirely and allows sign-in to succeed.
 #
-# MUST be called after stop_docker_desktop.
+# Does not require Docker Desktop to be stopped - registry.json is read at
+# startup, so the fix takes effect after the next restart.
 fix_authconfig() {
-    local latest_backup
-    echo "Removing broken allowedOrgs configuration..."
+    local registry_json="/usr/share/docker-desktop/registry/registry.json"
+    echo "Removing broken org enforcement configuration..."
 
-    echo "Checking Docker Desktop settings file..."
-    if [ -f "$DESKTOP_SETTINGS" ]; then
-        latest_backup=$(ls -t "${DESKTOP_SETTINGS}.backup-auth-"* 2>/dev/null | head -1)
-        if [ -n "$latest_backup" ]; then
-            cp "$latest_backup" "$DESKTOP_SETTINGS"
-            echo "  Restored settings.json from backup: $(basename "$latest_backup")"
-        else
-            echo "  No backup found, removing allowedOrgs key"
-            python3 - "$DESKTOP_SETTINGS" << 'PYEOF'
-import json, sys
-path = sys.argv[1]
-with open(path, 'r') as f:
-    data = json.load(f)
-data.pop('allowedOrgs', None)
-with open(path, 'w') as f:
-    json.dump(data, f, indent=2)
-PYEOF
-            echo "  allowedOrgs key removed"
-        fi
+    if [ -f "$registry_json" ]; then
+        sudo rm -f "$registry_json"
+        echo "  Removed: $registry_json"
     else
-        echo "  Settings file not found - nothing to fix"
+        echo "  registry.json not found - nothing to fix"
     fi
 
     echo ""
-    echo "allowedOrgs configuration cleaned up"
+    echo "Org enforcement configuration removed"
     echo "NOTE: Sign back in manually after Docker Desktop restarts: docker login"
 }
 
