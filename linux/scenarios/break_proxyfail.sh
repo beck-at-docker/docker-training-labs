@@ -20,7 +20,7 @@
 # very unlikely to be occupied on a typical developer workstation.
 #
 # On Linux, Docker Desktop stores its GUI-level proxy config in:
-#   ~/.docker/desktop/settings.json
+#   ~/.docker/desktop/settings-store.json
 #
 # If that file does not exist (older Docker Desktop or different installation),
 # this script falls back to ~/.docker/daemon.json.
