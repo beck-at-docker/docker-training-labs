@@ -7,17 +7,48 @@
 # Each Fix-* function is idempotent: running it on an already-fixed environment
 # is safe and produces no harmful side effects.
 #
-# Scenarios that write to settings-store.json (Proxy, ProxyFail, SSO,
-# AuthConfig) MUST be called after Stop-DockerDesktop. Docker flushes its
-# in-memory configuration back to settings-store.json on a clean shutdown,
-# which would overwrite any changes written while the daemon was running.
+# Scenario requirements at a glance:
 #
-# Scenarios that operate via live iptables or container removal (DNS, Bridge,
-# Ports) require Docker to be running and do not need a restart to take effect.
+#   Docker must be RUNNING:  DNS, PORT, BRIDGE, PROXY, PROXYFAIL
+#   Docker must be STOPPED:  AUTHCONFIG
+#   Docker state irrelevant: SSO (pipe API for proxy, no restart needed)
+#
+# PROXY, PROXYFAIL, and SSO use the backend pipe API while Docker is running.
+# They fall back to editing settings-store.json if the pipe is unavailable,
+# but that fallback requires a manual Docker Desktop restart.
+#
+# AUTHCONFIG writes directly to settings-store.json and needs Docker stopped
+# first so the running process cannot flush in-memory state back over the
+# changes on shutdown.
+#
+# Scenarios that operate via live iptables or container removal (DNS, BRIDGE,
+# PORT) require Docker to be running and do not need a restart to take effect.
+#
+# IMPORTANT: Never use 'Set-Content -Encoding UTF8' for JSON files. PowerShell
+# 5.x writes UTF-8 with a BOM (EF BB BF) that Go's JSON parser rejects. Use
+# the Write-JsonFile helper below instead.
 
 $settingsStore = "$env:APPDATA\Docker\settings-store.json"
 $dockerExe     = "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe"
 $jobIdFile     = "$env:TEMP\port_squatter_8080_job.txt"
+
+# Write-JsonFile - Write a string to a file as UTF-8 WITHOUT a BOM.
+#
+# PowerShell 5.x's 'Set-Content -Encoding UTF8' adds a BOM (bytes EF BB BF)
+# at the start of the file. Go's encoding/json (used by Docker Desktop) does
+# not handle BOM-prefixed input and fails with: "invalid character '\ufeff'
+# looking for beginning of value". Docker Desktop then falls back to defaults
+# or admin policy, silently discarding whatever we wrote.
+#
+# This function wraps [System.IO.File]::WriteAllText with an explicit
+# BOM-free UTF-8 encoding. Use it for ALL JSON file writes in this project.
+function Write-JsonFile {
+    param(
+        [string]$Path,
+        [string]$Content
+    )
+    [System.IO.File]::WriteAllText($Path, $Content, [System.Text.UTF8Encoding]::new($false))
+}
 
 # Invoke-DockerBackendAPI - Send a POST request to the Docker Desktop
 # backend named pipe API. Used by fix functions to apply settings to
@@ -95,7 +126,7 @@ function Reset-ProxyKeys {
     $data | Add-Member -MemberType NoteProperty -Name ProxyHTTPMode           -Value "system" -Force
     $data | Add-Member -MemberType NoteProperty -Name ContainersProxyHTTPMode -Value "system" -Force
 
-    $data | ConvertTo-Json -Depth 10 | Set-Content $Path -Encoding UTF8
+    Write-JsonFile -Path $Path -Content ($data | ConvertTo-Json -Depth 10)
 }
 
 # Fix-Bridge - Restore the Docker bridge network.
@@ -239,34 +270,63 @@ function Fix-Proxy {
     Write-Host "Open a new terminal for User-scope variable changes to take effect."
 }
 
-# Fix-ProxyFail - Remove the loopback proxy address from settings-store.json.
+# Fix-ProxyFail - Restore proxy settings via the backend pipe API.
 #
-# break_proxyfail.ps1 sets ProxyHTTP/HTTPS to 127.0.0.1:9753, causing an
-# immediate connection-refused error on every pull. Restores from backup or
-# resets to system mode.
+# break_proxyfail.ps1 sets a loopback proxy (127.0.0.1:9753) via the backend
+# pipe API. This function restores proxy mode to system via the same API
+# while Docker Desktop is running.
 #
-# MUST be called after Stop-DockerDesktop.
+# Falls back to restoring settings-store.json from backup if the pipe is
+# unavailable. In that case Docker Desktop must be restarted manually.
+#
+# Does NOT require Stop-DockerDesktop - Docker Desktop must be running.
 function Fix-ProxyFail {
     Write-Host "Removing broken loopback proxy configuration..."
 
-    Write-Host "Checking Docker Desktop settings store..."
-    if (Test-Path $settingsStore) {
-        $backupDir = Split-Path $settingsStore
-        $backups   = Get-ChildItem -Path $backupDir `
-                                   -Filter "settings-store.json.backup-proxyfail-*" `
-                                   -ErrorAction SilentlyContinue |
-                     Sort-Object LastWriteTime -Descending
-
-        if ($backups.Count -gt 0) {
-            Copy-Item -Path $backups[0].FullName -Destination $settingsStore -Force
-            Write-Host "  Restored settings store from backup: $($backups[0].Name)"
-        } else {
-            Write-Host "  No backup found, resetting proxy keys to system mode"
-            Reset-ProxyKeys -Path $settingsStore
-            Write-Host "  Proxy keys reset to system mode"
+    # Try the backend pipe API first (preferred - applies immediately).
+    Write-Host "Restoring proxy settings via Docker Desktop backend API..."
+    $apiResult = Invoke-DockerBackendAPI -Payload @{
+        vm = @{
+            proxy = @{
+                mode    = @{ value = "system" }
+                http    = @{ value = "" }
+                https   = @{ value = "" }
+                exclude = @{ value = "" }
+            }
+            containersProxy = @{
+                mode    = @{ value = "system" }
+                http    = @{ value = "" }
+                https   = @{ value = "" }
+                exclude = @{ value = "" }
+            }
         }
+    }
+
+    if ($apiResult) {
+        Write-Host "  API call succeeded - proxy reset to system mode"
     } else {
-        Write-Host "  Settings store not found - nothing to fix"
+        Write-Host "  API call failed - falling back to file restore"
+        # Fallback: restore settings-store.json from backup.
+        # Docker Desktop must be restarted for the file change to take effect.
+        if (Test-Path $settingsStore) {
+            $backupDir = Split-Path $settingsStore
+            $backups   = Get-ChildItem -Path $backupDir `
+                                       -Filter "settings-store.json.backup-proxyfail-*" `
+                                       -ErrorAction SilentlyContinue |
+                         Sort-Object LastWriteTime -Descending
+
+            if ($backups.Count -gt 0) {
+                Copy-Item -Path $backups[0].FullName -Destination $settingsStore -Force
+                Write-Host "  Restored settings store from backup: $($backups[0].Name)"
+            } else {
+                Write-Host "  No backup found, resetting proxy keys to system mode"
+                Reset-ProxyKeys -Path $settingsStore
+                Write-Host "  Proxy keys reset to system mode"
+            }
+        } else {
+            Write-Host "  Settings store not found - nothing to restore"
+        }
+        Write-Host "  Docker Desktop must be restarted for the fix to take effect"
     }
 
     Write-Host ""
@@ -358,7 +418,7 @@ function Fix-AuthConfig {
             Write-Host "  No backup found, removing allowedOrgs key"
             $data = Get-Content $settingsStore -Raw | ConvertFrom-Json
             $data.PSObject.Properties.Remove("allowedOrgs")
-            $data | ConvertTo-Json -Depth 10 | Set-Content $settingsStore -Encoding UTF8
+            Write-JsonFile -Path $settingsStore -Content ($data | ConvertTo-Json -Depth 10)
             Write-Host "  allowedOrgs key removed"
         }
     } else {

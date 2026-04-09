@@ -1,16 +1,15 @@
 # test_proxyfail.ps1 - Validates that the loopback proxy misconfiguration
 # has been resolved.
 #
-# The break writes a manual proxy pointing to 127.0.0.1:9753 into Docker
-# Desktop's settings store ($env:APPDATA\Docker\settings-store.json). Unlike
-# the PROXY lab which uses a non-routable RFC 5737 address (192.0.2.1) that
-# silently drops packets, this break uses a loopback address that produces
-# immediate "connection refused" errors - the key diagnostic distinction this
-# lab teaches.
+# The break applies a manual proxy pointing to 127.0.0.1:9753 via the Docker
+# Desktop backend pipe API (which persists to settings-store.json). Unlike the
+# PROXY lab which uses a non-routable RFC 5737 address (192.0.2.1) that silently
+# drops packets, this break uses a loopback address that produces immediate
+# "connection refused" errors - the key diagnostic distinction this lab teaches.
 #
-# A complete fix requires removing the loopback proxy from settings-store.json
-# (either clearing the manual proxy keys or switching ProxyHTTPMode back to
-# "system") and restarting Docker Desktop.
+# A complete fix requires clearing the manual proxy (either via Docker Desktop
+# settings UI, editing settings-store.json, or using the backend API) and
+# restarting Docker Desktop if a file-based fix was used.
 #
 # Output contract (parsed by Check-Lab in troubleshootwinlab.ps1):
 #   Score: <n>%

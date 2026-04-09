@@ -645,15 +645,18 @@ function Show-ReportCard {
 # starts. Runs the scenario-specific Fix-* function from lib/fix.ps1 rather
 # than all.ps1, which avoids unnecessary work on the other scenarios.
 #
-# Scenarios split into two groups:
+# Scenarios split into three groups:
 #
 #   Live fixes (DNS, PORT, BRIDGE) - require a running daemon; use nsenter
 #   or docker rm. No Docker Desktop restart is needed.
 #
-#   Settings fixes (PROXY, PROXYFAIL, SSO, AUTHCONFIG) - write to
-#   settings-store.json. Docker Desktop must be stopped first or its graceful-
-#   shutdown flush will overwrite the changes. The user is instructed to
-#   restart manually before starting a new lab.
+#   API fixes (PROXY, PROXYFAIL, SSO) - use the backend pipe API while
+#   Docker is running. No stop or restart needed (the API applies changes
+#   to the live daemon immediately).
+#
+#   File fixes (AUTHCONFIG) - write to settings-store.json. Docker Desktop
+#   must be stopped first or its graceful-shutdown flush will overwrite the
+#   changes. The user is instructed to restart manually.
 # ------------------------------------------------------------------
 function Invoke-FixCurrentLab {
     $scenario = Get-CurrentScenario
@@ -664,23 +667,21 @@ function Invoke-FixCurrentLab {
     Write-Host ""
 
     switch ($scenario) {
-        "DNS"   { Fix-Dns;    break }
-        "PORT"  { Fix-Ports;  break }
-        "BRIDGE"{ Fix-Bridge; break }
+        "DNS"       { Fix-Dns;       break }
+        "PORT"      { Fix-Ports;     break }
+        "BRIDGE"    { Fix-Bridge;    break }
+        "PROXY"     { Fix-Proxy;     break }
+        "PROXYFAIL" { Fix-ProxyFail; break }
+        "SSO"       { Fix-Sso;       break }
 
-        { $_ -in @("PROXY", "PROXYFAIL", "SSO", "AUTHCONFIG") } {
-            # These scenarios write to settings-store.json. Docker Desktop must
+        "AUTHCONFIG" {
+            # AUTHCONFIG writes to settings-store.json. Docker Desktop must
             # be stopped before the write so the running process cannot flush
             # in-memory state back over our changes on shutdown.
             Stop-DockerDesktop
             Write-Host ""
 
-            switch ($scenario) {
-                "PROXY"      { Fix-Proxy;      break }
-                "PROXYFAIL"  { Fix-ProxyFail;  break }
-                "SSO"        { Fix-Sso;        break }
-                "AUTHCONFIG" { Fix-AuthConfig; break }
-            }
+            Fix-AuthConfig
 
             Write-Host ""
             Write-Yellow "Docker Desktop was stopped to apply the fix."

@@ -80,7 +80,13 @@ $data = Get-Content $settingsStore -Raw | ConvertFrom-Json
 $data | Add-Member -MemberType NoteProperty -Name allowedOrgs `
         -Value @("https://hub.docker.com/u/required-org") -Force
 
-$data | ConvertTo-Json -Depth 10 | Set-Content $settingsStore -Encoding UTF8
+# CRITICAL: Do NOT use 'Set-Content -Encoding UTF8' here. PowerShell 5.x
+# writes UTF-8 with a BOM (EF BB BF), which Go's json.Unmarshal cannot parse.
+# Docker Desktop would fail to read the file and fall back to defaults,
+# silently discarding the break. WriteAllText with UTF8Encoding($false)
+# produces clean BOM-free UTF-8.
+$json = $data | ConvertTo-Json -Depth 10
+[System.IO.File]::WriteAllText($settingsStore, $json, [System.Text.UTF8Encoding]::new($false))
 
 Write-Host "  Settings store updated"
 

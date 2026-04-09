@@ -25,7 +25,7 @@ function Reset-LabState {
     }
     $data | Add-Member -MemberType NoteProperty -Name current_scenario    -Value $null -Force
     $data | Add-Member -MemberType NoteProperty -Name scenario_start_time -Value $null -Force
-    $data | ConvertTo-Json | Set-Content $configFile -Encoding UTF8
+    Write-JsonFile -Path $configFile -Content ($data | ConvertTo-Json)
 }
 
 # Invoke-Section <label> <scriptblock>
@@ -48,21 +48,6 @@ function Invoke-Section {
     }
     Write-Host ""
     Write-Host "=========================================="
-}
-
-# Reset-LabState - Clear the active scenario from config.json.
-# Called once at the end after all fixes have been applied.
-function Reset-LabState {  # local to all.ps1 - not needed in lib/fix.ps1
-    $configFile = Join-Path $HOME ".docker-training-labs\config.json"
-    if (-not (Test-Path $configFile)) { return }
-    try {
-        $data = Get-Content $configFile -Raw | ConvertFrom-Json
-    } catch {
-        $data = [PSCustomObject]@{}
-    }
-    $data | Add-Member -MemberType NoteProperty -Name current_scenario    -Value $null -Force
-    $data | Add-Member -MemberType NoteProperty -Name scenario_start_time -Value $null -Force
-    $data | ConvertTo-Json | Set-Content $configFile -Encoding UTF8
 }
 
 # ===========================================================================
@@ -98,20 +83,24 @@ $failedSteps = @()
 # Phase 1: fixes that require Docker to be running.
 #
 # Bridge and DNS inject iptables rules inside the VM via nsenter, which
-# requires a running daemon. Port cleanup uses docker rm. All three must
-# run before Docker Desktop is stopped.
+# requires a running daemon. Port cleanup uses docker rm. Proxy,
+# ProxyFail, and SSO use the Docker Desktop backend pipe API, which also
+# requires a running daemon. All six must run before Docker Desktop is
+# stopped.
 # ------------------------------------------------------------------
-Invoke-Section "[1/7] Bridge Network" { Fix-Bridge }
-Invoke-Section "[2/7] DNS Resolution" { Fix-Dns }
-Invoke-Section "[7/7] Port Conflicts" { Fix-Ports }
+Invoke-Section "[1/7] Bridge Network"           { Fix-Bridge }
+Invoke-Section "[2/7] DNS Resolution"           { Fix-Dns }
+Invoke-Section "[3/7] Proxy Configuration"      { Fix-Proxy }
+Invoke-Section "[4/7] Proxy Failure Simulation" { Fix-ProxyFail }
+Invoke-Section "[5/7] SSO Configuration"        { Fix-Sso }
+Invoke-Section "[7/7] Port Conflicts"           { Fix-Ports }
 
 # ------------------------------------------------------------------
-# Stop Docker Desktop BEFORE writing to settings-store.json.
+# Phase 2: fixes that write to settings-store.json.
 #
-# Docker flushes its in-memory configuration back to settings-store.json
-# on a clean shutdown. Writing fixes while Docker is running and then
-# stopping it gracefully would cause that flush to overwrite the changes.
-# Stopping the process first eliminates that race entirely.
+# AUTHCONFIG writes allowedOrgs to the settings file. Docker Desktop
+# must be stopped first so its graceful-shutdown flush does not
+# overwrite the changes.
 # ------------------------------------------------------------------
 Write-Host ""
 Write-Host "--- Stopping Docker Desktop ---"
@@ -121,15 +110,6 @@ Stop-DockerDesktop
 Write-Host ""
 Write-Host "=========================================="
 
-# ------------------------------------------------------------------
-# Phase 2: fixes that write to settings-store.json.
-#
-# Docker Desktop is stopped so these writes are safe - there is no
-# running process to flush in-memory state back over the changes.
-# ------------------------------------------------------------------
-Invoke-Section "[3/7] Proxy Configuration"      { Fix-Proxy }
-Invoke-Section "[4/7] Proxy Failure Simulation" { Fix-ProxyFail }
-Invoke-Section "[5/7] SSO Configuration"        { Fix-Sso }
 Invoke-Section "[6/7] Auth Config Enforcement"  { Fix-AuthConfig }
 
 # ------------------------------------------------------------------
@@ -146,7 +126,6 @@ if (Test-Path $dockerExe) {
     $failedSteps += "Docker Desktop restart"
 }
 
-Write-Host "Docker Desktop must be started manually..."
 Write-Host "Waiting for Docker Desktop to restart..."
 $dockerReady = $false
 for ($i = 0; $i -lt 60; $i++) {
