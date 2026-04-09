@@ -389,8 +389,8 @@ refused" or "connection timed out" - that distinction tells you
 exactly what kind of proxy problem you're dealing with.
 
 On Linux, Docker Desktop proxy config lives in:
-  ~/.docker/desktop/settings.json  (preferred)
-  ~/.docker/daemon.json            (fallback)
+  ~/.docker/desktop/settings-store.json  (preferred)
+  ~/.docker/daemon.json                  (fallback)
 
 Symptoms you should observe:
   - docker pull fails immediately (no long wait before error)
@@ -402,7 +402,7 @@ Symptoms you should observe:
 Diagnostic Commands to Try:
   docker pull hello-world
   docker info | grep -i proxy
-  cat ~/.docker/desktop/settings.json
+  cat ~/.docker/desktop/settings-store.json
   cat ~/.docker/daemon.json
   env | grep -i proxy
 
