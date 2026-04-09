@@ -3,8 +3,8 @@
 # has been resolved.
 #
 # The break writes a manual proxy pointing to 127.0.0.1:9753 into either
-# ~/.docker/desktop/settings.json (preferred) or ~/.docker/daemon.json
-# (fallback if settings.json is absent). Unlike the PROXY lab which uses a
+# ~/.docker/desktop/settings-store.json (preferred) or ~/.docker/daemon.json
+# (fallback if settings-store.json is absent). Unlike the PROXY lab which uses a
 # non-routable RFC 5737 address (192.0.2.1) that silently drops packets, this
 # break uses a loopback address that produces immediate "connection refused"
 # errors - the key diagnostic distinction this lab teaches.
@@ -20,7 +20,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/test_framework.sh"
 
-DESKTOP_SETTINGS="$HOME/.docker/desktop/settings.json"
+DESKTOP_SETTINGS="$HOME/.docker/desktop/settings-store.json"
 DAEMON_CONFIG="$HOME/.docker/daemon.json"
 
 # The specific loopback address written by break_proxyfail.sh

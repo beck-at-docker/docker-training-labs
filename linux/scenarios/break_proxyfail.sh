@@ -27,7 +27,7 @@
 
 set -e
 
-DESKTOP_SETTINGS="$HOME/.docker/desktop/settings.json"
+DESKTOP_SETTINGS="$HOME/.docker/desktop/settings-store.json"
 DAEMON_CONFIG="$HOME/.docker/daemon.json"
 BACKUP_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BROKEN_PROXY="http://127.0.0.1:9753"

@@ -363,10 +363,10 @@ configured to validate who is allowed to be signed in.
 Diagnostic Commands to Try:
   docker info | grep -i username
   docker pull alpine:latest
-  cat ~/.docker/desktop/settings.json
+  cat ~/.docker/desktop/settings-store.json
 
 Look for:
-  - The allowedOrgs key in settings.json
+  - The allowedOrgs key in settings-store.json
   - Its value format: should be a plain org slug like ["my-company"]
     not a URL like ["https://hub.docker.com/u/my-company"]
 

@@ -23,7 +23,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/test_framework.sh"
 
-DESKTOP_SETTINGS="$HOME/.docker/desktop/settings.json"
+DESKTOP_SETTINGS="$HOME/.docker/desktop/settings-store.json"
 
 echo "=========================================="
 echo "Auth Config (allowedOrgs) Scenario Test"
