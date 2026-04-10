@@ -1,33 +1,33 @@
 # break_authconfig.ps1 - Simulates an org enforcement misconfiguration in
-# Docker Desktop's admin settings file.
+# Docker Desktop's sign-in enforcement file.
 #
-# Based on real support cases where an admin pushed an admin-settings.json
-# with the wrong organization slug. Docker Desktop reads this file on startup
+# Based on real support cases where an admin pushed a registry.json file via
+# MDM with the wrong org slug. Docker Desktop reads registry.json on startup
 # and enforces sign-in: the user must be a member of one of the listed orgs.
-# If no org slug matches one the user belongs to, Docker Desktop signs them
-# out immediately after every login attempt.
+# If the slug doesn't match any org the user belongs to, Docker Desktop signs
+# them out immediately after every login attempt.
 #
 # On Windows, Docker Desktop reads sign-in enforcement config from:
-#   C:\ProgramData\DockerDesktop\admin-settings.json
+#   C:\ProgramData\DockerDesktop\registry.json
 #
-# This file requires admin privileges to modify, which reflects how it would
-# be deployed in a real environment (MDM or admin provisioning script).
+# This file does not exist by default - it is created by admins to enable
+# org enforcement. Writing it requires admin privileges, which reflects how
+# it would be deployed in a real environment (MDM or admin script).
 #
 # The break does two things:
 #
 #   1. docker logout: clears stored Docker Hub credentials while Docker Desktop
 #      is still running, so the Windows credential helper can execute cleanly.
 #
-#   2. admin-settings.json: injects an allowedOrgs entry with a wrong-but-valid
-#      org slug ("acme-corp"). The trainee's account is not a member of this
-#      org, so every sign-in attempt triggers enforcement and immediately signs
+#   2. registry.json: creates the enforcement file with a wrong-but-valid org
+#      slug ("acme-corp"). The trainee's account is not a member of this org,
+#      so every sign-in attempt triggers enforcement and immediately signs
 #      them out.
 #
-# Docker Desktop is restarted after admin-settings.json is written so it picks
-# up the new enforcement configuration.
+# Docker Desktop is restarted after registry.json is written so it picks up
+# the new enforcement configuration.
 
-$adminSettings = "C:\ProgramData\DockerDesktop\admin-settings.json"
-$timestamp     = Get-Date -Format "yyyyMMdd_HHmmss"
+$registryJson = "C:\ProgramData\DockerDesktop\registry.json"
 
 Write-Host "Breaking Docker Desktop..."
 
@@ -35,13 +35,6 @@ Write-Host "Breaking Docker Desktop..."
 docker info 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Error: Docker Desktop is not running"
-    exit 1
-}
-
-# Verify the admin settings file exists
-if (-not (Test-Path $adminSettings)) {
-    Write-Host "Error: Docker Desktop admin settings file not found at:"
-    Write-Host "  $adminSettings"
     exit 1
 }
 
@@ -58,38 +51,30 @@ docker logout 2>&1 | Out-Null
 Write-Host "  Docker Hub credentials cleared"
 
 # ------------------------------------------------------------------
-# Inject allowedOrgs into admin-settings.json with a wrong org slug.
+# Create registry.json with a wrong org slug.
 #
 # The trainee's account is not a member of "acme-corp", so enforcement
 # fires on every sign-in attempt. We use a valid slug format (not a URL)
 # because Docker Desktop validates slug format before enforcing - a
 # malformed value is silently ignored rather than triggering sign-out.
 #
-# admin-settings.json uses a locked/value structure for most keys, but
-# allowedOrgs is a top-level array (not a locked/value object).
+# registry.json does not exist by default, so there is nothing to back
+# up. The fix simply deletes the file.
 #
 # C:\ProgramData\DockerDesktop\ requires admin rights to write, so
 # Docker Desktop cannot overwrite this file on startup - it persists
-# across restarts unlike settings-store.json.
+# across restarts.
 # ------------------------------------------------------------------
-$backupPath = "${adminSettings}.backup-auth-${timestamp}"
-Copy-Item $adminSettings $backupPath
-
-$data = Get-Content $adminSettings -Raw | ConvertFrom-Json
-
-$data | Add-Member -MemberType NoteProperty -Name allowedOrgs `
-        -Value @("acme-corp") -Force
 
 # Use BOM-free UTF-8. PowerShell 5.x Set-Content -Encoding UTF8 writes a BOM
 # that Go's json.Unmarshal rejects. WriteAllText with UTF8Encoding($false)
 # produces clean BOM-free output.
-$json = $data | ConvertTo-Json -Depth 10
-[System.IO.File]::WriteAllText($adminSettings, $json, [System.Text.UTF8Encoding]::new($false))
+[System.IO.File]::WriteAllText($registryJson, '{"allowedOrgs":["acme-corp"]}', [System.Text.UTF8Encoding]::new($false))
 
-Write-Host "  admin-settings.json updated with wrong org slug"
+Write-Host "  registry.json created with wrong org slug"
 
 # ------------------------------------------------------------------
-# Restart Docker Desktop so it reads the updated admin-settings.json.
+# Restart Docker Desktop so it reads the new registry.json.
 # ------------------------------------------------------------------
 Write-Host ""
 Write-Host "Restarting Docker Desktop to apply enforcement config..."

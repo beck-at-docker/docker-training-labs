@@ -17,9 +17,9 @@
 # They fall back to editing settings-store.json if the pipe is unavailable,
 # but that fallback requires a manual Docker Desktop restart.
 #
-# AUTHCONFIG writes directly to settings-store.json and needs Docker stopped
-# first so the running process cannot flush in-memory state back over the
-# changes on shutdown.
+# AUTHCONFIG writes registry.json to C:\ProgramData\DockerDesktop\ and needs
+# Docker restarted so it picks up the new enforcement config on startup.
+# The fix simply deletes registry.json and restarts Docker Desktop.
 #
 # Scenarios that operate via live iptables or container removal (DNS, BRIDGE,
 # PORT) require Docker to be running and do not need a restart to take effect.
@@ -393,43 +393,28 @@ function Fix-Sso {
     Write-Host "NOTE: Sign back in manually after proxy is cleared: docker login"
 }
 
-# Fix-AuthConfig - Remove the injected allowedOrgs entry from admin-settings.json.
+# Fix-AuthConfig - Delete the registry.json enforcement file created by the break.
 #
-# break_authconfig.ps1 adds allowedOrgs with a wrong org slug ("acme-corp") to
-# C:\ProgramData\DockerDesktop\admin-settings.json, causing a sign-in loop.
-# Restores from the scenario backup or removes the allowedOrgs key entirely.
+# break_authconfig.ps1 creates C:\ProgramData\DockerDesktop\registry.json with
+# allowedOrgs set to a wrong org slug ("acme-corp"), causing a sign-in loop.
+# The file does not exist by default, so the fix simply removes it.
 #
-# admin-settings.json is read only on Docker Desktop startup, so a restart is
-# required after this fix. The CLI orchestrator handles the restart.
+# Docker Desktop reads registry.json only on startup, so a restart is required
+# after this fix. The CLI orchestrator handles the restart.
 function Fix-AuthConfig {
-    $adminSettings = "C:\ProgramData\DockerDesktop\admin-settings.json"
+    $registryJson = "C:\ProgramData\DockerDesktop\registry.json"
 
-    Write-Host "Removing broken allowedOrgs configuration..."
+    Write-Host "Removing org enforcement configuration..."
 
-    Write-Host "Checking Docker Desktop admin settings file..."
-    if (Test-Path $adminSettings) {
-        $backupDir = Split-Path $adminSettings
-        $backups   = Get-ChildItem -Path $backupDir `
-                                   -Filter "admin-settings.json.backup-auth-*" `
-                                   -ErrorAction SilentlyContinue |
-                     Sort-Object LastWriteTime -Descending
-
-        if ($backups.Count -gt 0) {
-            Copy-Item -Path $backups[0].FullName -Destination $adminSettings -Force
-            Write-Host "  Restored admin settings from backup: $($backups[0].Name)"
-        } else {
-            Write-Host "  No backup found, removing allowedOrgs key"
-            $data = Get-Content $adminSettings -Raw | ConvertFrom-Json
-            $data.PSObject.Properties.Remove("allowedOrgs")
-            Write-JsonFile -Path $adminSettings -Content ($data | ConvertTo-Json -Depth 10)
-            Write-Host "  allowedOrgs key removed"
-        }
+    if (Test-Path $registryJson) {
+        Remove-Item $registryJson -Force
+        Write-Host "  Deleted registry.json"
     } else {
-        Write-Host "  Admin settings file not found - nothing to fix"
+        Write-Host "  registry.json not found - nothing to fix"
     }
 
     Write-Host ""
-    Write-Host "allowedOrgs configuration cleaned up"
+    Write-Host "Org enforcement configuration removed"
     Write-Host "NOTE: Sign back in manually after Docker Desktop restarts: docker login"
 }
 
