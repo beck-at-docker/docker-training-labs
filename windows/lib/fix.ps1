@@ -393,36 +393,39 @@ function Fix-Sso {
     Write-Host "NOTE: Sign back in manually after proxy is cleared: docker login"
 }
 
-# Fix-AuthConfig - Remove the corrupt allowedOrgs value from settings-store.json.
+# Fix-AuthConfig - Remove the injected allowedOrgs entry from admin-settings.json.
 #
-# break_authconfig.ps1 sets allowedOrgs to a URL-format value instead of a
-# plain org slug, causing the sign-in loop. Restores from backup or removes
-# the allowedOrgs key entirely.
+# break_authconfig.ps1 adds allowedOrgs with a wrong org slug ("acme-corp") to
+# C:\ProgramData\DockerDesktop\admin-settings.json, causing a sign-in loop.
+# Restores from the scenario backup or removes the allowedOrgs key entirely.
 #
-# MUST be called after Stop-DockerDesktop.
+# admin-settings.json is read only on Docker Desktop startup, so a restart is
+# required after this fix. The CLI orchestrator handles the restart.
 function Fix-AuthConfig {
+    $adminSettings = "C:\ProgramData\DockerDesktop\admin-settings.json"
+
     Write-Host "Removing broken allowedOrgs configuration..."
 
-    Write-Host "Checking Docker Desktop settings store..."
-    if (Test-Path $settingsStore) {
-        $backupDir = Split-Path $settingsStore
+    Write-Host "Checking Docker Desktop admin settings file..."
+    if (Test-Path $adminSettings) {
+        $backupDir = Split-Path $adminSettings
         $backups   = Get-ChildItem -Path $backupDir `
-                                   -Filter "settings-store.json.backup-auth-*" `
+                                   -Filter "admin-settings.json.backup-auth-*" `
                                    -ErrorAction SilentlyContinue |
                      Sort-Object LastWriteTime -Descending
 
         if ($backups.Count -gt 0) {
-            Copy-Item -Path $backups[0].FullName -Destination $settingsStore -Force
-            Write-Host "  Restored settings store from backup: $($backups[0].Name)"
+            Copy-Item -Path $backups[0].FullName -Destination $adminSettings -Force
+            Write-Host "  Restored admin settings from backup: $($backups[0].Name)"
         } else {
             Write-Host "  No backup found, removing allowedOrgs key"
-            $data = Get-Content $settingsStore -Raw | ConvertFrom-Json
+            $data = Get-Content $adminSettings -Raw | ConvertFrom-Json
             $data.PSObject.Properties.Remove("allowedOrgs")
-            Write-JsonFile -Path $settingsStore -Content ($data | ConvertTo-Json -Depth 10)
+            Write-JsonFile -Path $adminSettings -Content ($data | ConvertTo-Json -Depth 10)
             Write-Host "  allowedOrgs key removed"
         }
     } else {
-        Write-Host "  Settings store not found - nothing to fix"
+        Write-Host "  Admin settings file not found - nothing to fix"
     }
 
     Write-Host ""

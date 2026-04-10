@@ -1,54 +1,98 @@
 # break_authconfig.ps1 - Simulates an org enforcement misconfiguration in
-# Docker Desktop's settings store.
+# Docker Desktop's admin settings file.
 #
-# Based on real support cases where Docker Desktop immediately signed users out
-# after SSO because allowedOrgs was set to a URL-format value instead of a
-# plain organization slug. Docker Desktop's org enforcement check matches
-# against plain slugs only - a URL value never matches any real org, so every
-# login attempt fires enforcement and triggers an immediate sign-out.
+# Based on real support cases where an admin pushed an admin-settings.json
+# with the wrong organization slug. Docker Desktop reads this file on startup
+# and enforces sign-in: the user must be a member of one of the listed orgs.
+# If no org slug matches one the user belongs to, Docker Desktop signs them
+# out immediately after every login attempt.
+#
+# On Windows, Docker Desktop reads sign-in enforcement config from:
+#   C:\ProgramData\DockerDesktop\admin-settings.json
+#
+# This file requires admin privileges to modify, which reflects how it would
+# be deployed in a real environment (MDM or admin provisioning script).
 #
 # The break does two things:
 #
-#   1. settings-store.json: writes a URL-format array to allowedOrgs
-#      (e.g. ["https://hub.docker.com/u/required-org"]) instead of the correct
-#      plain-slug format (e.g. ["required-org"]). The enforcement check runs
-#      on sign-in and immediately signs the user out because no slug matches.
+#   1. docker logout: clears stored Docker Hub credentials while Docker Desktop
+#      is still running, so the Windows credential helper can execute cleanly.
 #
-#   2. docker logout: clears stored Docker Hub credentials so the trainee is
-#      forced to attempt sign-in and encounter the enforcement failure directly.
+#   2. admin-settings.json: injects an allowedOrgs entry with a wrong-but-valid
+#      org slug ("acme-corp"). The trainee's account is not a member of this
+#      org, so every sign-in attempt triggers enforcement and immediately signs
+#      them out.
 #
-# Docker Desktop is restarted after the settings change so it reads the
-# updated configuration before the trainee attempts to sign in.
+# Docker Desktop is restarted after admin-settings.json is written so it picks
+# up the new enforcement configuration.
 
-$settingsStore = "$env:APPDATA\Docker\settings-store.json"
+$adminSettings = "C:\ProgramData\DockerDesktop\admin-settings.json"
 $timestamp     = Get-Date -Format "yyyyMMdd_HHmmss"
 
 Write-Host "Breaking Docker Desktop..."
 
-# Verify Docker Desktop is running
+# Verify Docker Desktop is running before touching anything
 docker info 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Error: Docker Desktop is not running"
     exit 1
 }
 
-# Verify the settings store exists
-if (-not (Test-Path $settingsStore)) {
-    Write-Host "Error: Docker Desktop settings store not found at:"
-    Write-Host "  $settingsStore"
+# Verify the admin settings file exists
+if (-not (Test-Path $adminSettings)) {
+    Write-Host "Error: Docker Desktop admin settings file not found at:"
+    Write-Host "  $adminSettings"
     exit 1
 }
 
 # ------------------------------------------------------------------
-# Stop Docker Desktop BEFORE modifying settings-store.json.
+# Sign out of Docker Hub while Docker Desktop is still running.
 #
-# Docker Desktop persists its in-memory configuration back to
-# settings-store.json on clean shutdown. Writing the broken settings
-# first and then quitting would cause the graceful shutdown to
-# overwrite our changes. Stopping the process first prevents that race.
+# The Windows credential helper requires the Docker Desktop process to
+# be running. Calling docker logout after DD is stopped silently fails,
+# leaving the trainee signed in and unable to trigger the enforcement
+# loop. Running logout here, while DD is confirmed running, ensures
+# credentials are cleared before we restart.
+# ------------------------------------------------------------------
+docker logout 2>&1 | Out-Null
+Write-Host "  Docker Hub credentials cleared"
+
+# ------------------------------------------------------------------
+# Inject allowedOrgs into admin-settings.json with a wrong org slug.
+#
+# The trainee's account is not a member of "acme-corp", so enforcement
+# fires on every sign-in attempt. We use a valid slug format (not a URL)
+# because Docker Desktop validates slug format before enforcing - a
+# malformed value is silently ignored rather than triggering sign-out.
+#
+# admin-settings.json uses a locked/value structure for most keys, but
+# allowedOrgs is a top-level array (not a locked/value object).
+#
+# C:\ProgramData\DockerDesktop\ requires admin rights to write, so
+# Docker Desktop cannot overwrite this file on startup - it persists
+# across restarts unlike settings-store.json.
+# ------------------------------------------------------------------
+$backupPath = "${adminSettings}.backup-auth-${timestamp}"
+Copy-Item $adminSettings $backupPath
+
+$data = Get-Content $adminSettings -Raw | ConvertFrom-Json
+
+$data | Add-Member -MemberType NoteProperty -Name allowedOrgs `
+        -Value @("acme-corp") -Force
+
+# Use BOM-free UTF-8. PowerShell 5.x Set-Content -Encoding UTF8 writes a BOM
+# that Go's json.Unmarshal rejects. WriteAllText with UTF8Encoding($false)
+# produces clean BOM-free output.
+$json = $data | ConvertTo-Json -Depth 10
+[System.IO.File]::WriteAllText($adminSettings, $json, [System.Text.UTF8Encoding]::new($false))
+
+Write-Host "  admin-settings.json updated with wrong org slug"
+
+# ------------------------------------------------------------------
+# Restart Docker Desktop so it reads the updated admin-settings.json.
 # ------------------------------------------------------------------
 Write-Host ""
-Write-Host "Stopping Docker Desktop before modifying settings..."
+Write-Host "Restarting Docker Desktop to apply enforcement config..."
 
 $dockerProcess = Get-Process "Docker Desktop" -ErrorAction SilentlyContinue
 if ($dockerProcess) {
@@ -62,51 +106,6 @@ while ((Get-Process "Docker Desktop" -ErrorAction SilentlyContinue) -and $waited
     $waited++
 }
 
-# ------------------------------------------------------------------
-# Corrupt the allowedOrgs value in the settings store.
-#
-# The correct format is a JSON array of plain org slugs: ["my-org-name"].
-# We write a URL-format value instead. Docker Desktop's enforcement check
-# will never match this against any real org slug, so every sign-in
-# attempt results in an immediate sign-out loop.
-# ------------------------------------------------------------------
-$backupPath = "${settingsStore}.backup-auth-${timestamp}"
-Copy-Item $settingsStore $backupPath
-
-$data = Get-Content $settingsStore -Raw | ConvertFrom-Json
-
-# URL-format value - the correct format is just the org slug (e.g.
-# "my-company"), not a full URL with scheme and path components.
-$data | Add-Member -MemberType NoteProperty -Name allowedOrgs `
-        -Value @("https://hub.docker.com/u/required-org") -Force
-
-# CRITICAL: Do NOT use 'Set-Content -Encoding UTF8' here. PowerShell 5.x
-# writes UTF-8 with a BOM (EF BB BF), which Go's json.Unmarshal cannot parse.
-# Docker Desktop would fail to read the file and fall back to defaults,
-# silently discarding the break. WriteAllText with UTF8Encoding($false)
-# produces clean BOM-free UTF-8.
-$json = $data | ConvertTo-Json -Depth 10
-[System.IO.File]::WriteAllText($settingsStore, $json, [System.Text.UTF8Encoding]::new($false))
-
-Write-Host "  Settings store updated"
-
-# ------------------------------------------------------------------
-# Sign out of Docker Hub to force the sign-in prompt.
-#
-# docker logout removes the stored credential for the default registry
-# via the Windows credential helper. After Docker Desktop restarts with
-# the broken allowedOrgs config, the trainee will be prompted to sign in.
-# Their attempt will trigger the enforcement check and immediate sign-out.
-# ------------------------------------------------------------------
-docker logout 2>&1 | Out-Null
-Write-Host "  Docker Hub credentials cleared"
-
-# ------------------------------------------------------------------
-# Restart Docker Desktop so it reads the updated settings-store.json.
-# ------------------------------------------------------------------
-Write-Host ""
-Write-Host "Restarting Docker Desktop to apply settings..."
-
 $dockerExe = "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe"
 if (Test-Path $dockerExe) {
     Start-Process $dockerExe
@@ -114,7 +113,6 @@ if (Test-Path $dockerExe) {
     Write-Host "  Warning: Could not find Docker Desktop.exe - please start it manually"
 }
 
-Write-Host "Docker Desktop must be started manually..."
 Write-Host "  Waiting for Docker Desktop to restart..."
 $ready = $false
 for ($i = 0; $i -lt 30; $i++) {
@@ -135,4 +133,4 @@ Write-Host ""
 Write-Host "Docker Desktop broken"
 Write-Host "Backup saved: $backupPath"
 Write-Host ""
-Write-Host "Symptom: Sign-in loop - SSO completes in browser but Docker Desktop immediately signs out"
+Write-Host "Symptom: Sign-in loop - login completes but Docker Desktop immediately signs out"
