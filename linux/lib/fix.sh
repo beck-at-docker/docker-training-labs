@@ -552,13 +552,12 @@ fix_authconfig() {
     echo "NOTE: Sign back in manually after Docker Desktop restarts: docker login"
 }
 
-# fix_ports - Remove port-squatter containers and background HTTP processes.
+# fix_ports - Remove port-squatter containers.
 #
-# break_ports.sh starts several containers and a Python HTTP server that hold
-# common ports (80, 443, 3306, 5432, 8080). This removes them so the ports
-# are available again. Requires a running Docker daemon.
+# break_ports.sh starts several containers that hold common ports
+# (80, 443, 3306, 5432). This removes them so the ports are available
+# again. Requires a running Docker daemon.
 fix_ports() {
-    local pid
     echo "Cleaning up port conflicts..."
 
     echo "Removing port squatter containers..."
@@ -566,17 +565,6 @@ fix_ports() {
     docker rm -f port-squatter-443  2>/dev/null && echo "  Removed port-squatter-443"  || true
     docker rm -f port-squatter-3306 2>/dev/null && echo "  Removed port-squatter-3306" || true
     docker rm -f background-db      2>/dev/null && echo "  Removed background-db"      || true
-
-    echo ""
-    echo "Killing Python HTTP server on port 8080..."
-    if [ -f /tmp/port_squatter_8080.pid ]; then
-        pid=$(cat /tmp/port_squatter_8080.pid)
-        if ps -p "$pid" > /dev/null 2>&1; then
-            kill "$pid" 2>/dev/null && echo "  Killed process $pid" || true
-        fi
-        rm -f /tmp/port_squatter_8080.pid
-    fi
-    pkill -f "python3 -m http.server 8080" 2>/dev/null && echo "  Killed any remaining HTTP servers" || true
 
     echo ""
     echo "Port cleanup complete"

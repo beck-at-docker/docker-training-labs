@@ -1,9 +1,8 @@
 #!/bin/bash
 # tests/test_port.sh - Validates that the port binding conflict scenario has been resolved.
 #
-# The break occupies five ports with a mix of Docker containers and a host
-# process. A complete fix requires removing all squatter containers, killing
-# the Python HTTP server, and cleaning up its PID file.
+# The break occupies four ports with Docker containers. A complete fix requires
+# removing all squatter containers so the ports are available again.
 #
 # Output contract (parsed by check_lab() in troubleshootlinuxlab):
 #   Score: <n>%
@@ -18,8 +17,8 @@ echo "Port Binding Conflicts Scenario Test"
 echo "=========================================="
 echo ""
 
-# All five ports the break script occupies
-COMMON_PORTS=(80 443 3306 5432 8080)
+# All four ports the break script occupies
+COMMON_PORTS=(80 443 3306 5432)
 
 test_fixed_state() {
     log_info "Testing fixed state"
@@ -28,7 +27,7 @@ test_fixed_state() {
         "docker info > /dev/null"
 
     # Verify each port is free by binding a temporary container to it.
-    # All five are tested individually so trainees can see exactly which
+    # All four are tested individually so trainees can see exactly which
     # ports are still occupied if the fix was incomplete.
     # Pre-clean any test containers left over from an interrupted previous run
     # to avoid false failures caused by name conflicts rather than port conflicts.
@@ -49,22 +48,6 @@ test_fixed_state() {
         log_pass "All port squatter containers removed"
     else
         log_fail "Still found squatter containers: $squatters"
-    fi
-
-    # Verify the Python host process is gone
-    log_test "Python HTTP server stopped"
-    if ! ps aux | grep -v grep | grep "http.server 8080" > /dev/null; then
-        log_pass "Python HTTP server stopped"
-    else
-        log_fail "Python HTTP server still running"
-    fi
-
-    # Verify the PID file has been cleaned up
-    log_test "PID file cleaned up"
-    if [ ! -f /tmp/port_squatter_8080.pid ]; then
-        log_pass "PID file cleaned up"
-    else
-        log_fail "PID file still exists at /tmp/port_squatter_8080.pid"
     fi
 
     # Stability: confirm ports can be allocated and freed repeatedly.

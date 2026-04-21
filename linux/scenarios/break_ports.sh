@@ -1,17 +1,11 @@
 #!/bin/bash
 # scenarios/break_ports.sh - Creates port conflicts for common Docker ports
 #
-# Occupies five ports that trainees are likely to need:
+# Occupies four ports that trainees are likely to need:
 #   80, 443  - nginx containers named 'port-squatter-*' (easy to find with docker ps)
 #   3306     - mysql container (slightly harder - requires knowing the port)
 #   5432     - postgres container named 'background-db' (generic name blends in
 #              with real infrastructure; less obvious than 'squatter-*' names)
-#   8080     - python3 http.server process on the host (not a container at all;
-#              trainees must look beyond 'docker ps' to find and kill it)
-#
-# python3 is a checked prerequisite on Linux (install.sh requires Python 3.6+),
-# so it is safe to use here. The mix of container types and the host process is
-# intentional - a real port conflict can come from any process, not just Docker.
 
 # No set -e: each port squatter is attempted independently. A port that is
 # already occupied by a system service still satisfies the lab goal (the port
@@ -50,17 +44,6 @@ squat_port() {
 docker rm -f port-squatter-80 port-squatter-443 port-squatter-3306 background-db \
     > /dev/null 2>&1 || true
 
-# Kill any existing Python HTTP server on port 8080
-if [ -f /tmp/port_squatter_8080.pid ]; then
-    if ps -p "$(cat /tmp/port_squatter_8080.pid)" > /dev/null 2>&1; then
-        kill "$(cat /tmp/port_squatter_8080.pid)" 2>/dev/null || true
-    fi
-    rm -f /tmp/port_squatter_8080.pid
-fi
-
-# Also kill by process name in case the PID file is stale
-pkill -f "python3 -m http.server 8080" 2>/dev/null || true
-
 # Give processes a moment to clean up
 sleep 1
 
@@ -69,17 +52,6 @@ sleep 1
 squat_port port-squatter-80  80  nginx:alpine
 squat_port port-squatter-443 443 nginx:alpine
 squat_port port-squatter-3306 3306 mysql:8 -e MYSQL_ROOT_PASSWORD=dummy
-
-# Start a background host process on 8080 - not a container, requires different
-# diagnostic and cleanup approach than the containers above.
-nohup python3 -m http.server 8080 </dev/null >/dev/null 2>&1 &
-PY_PID=$!
-echo $PY_PID > /tmp/port_squatter_8080.pid
-if ps -p "$PY_PID" > /dev/null 2>&1; then
-    echo "  Squatted port 8080 via python3 http.server (pid $PY_PID)"
-else
-    echo "  Warning: python3 http.server failed to start - port 8080 may already be in use"
-fi
 
 # Create a less obvious container on port 5432. The generic name 'background-db'
 # blends in with real infrastructure and is harder to spot than 'squatter-*'.
