@@ -765,6 +765,77 @@ show_report_card() {
     echo ""
 }
 
+# silent_fix_all - Restore all Docker Desktop systems without verbose output.
+#
+# Mirrors the two-phase sequence in scenarios/all.sh:
+#   Phase 1 (Docker running): bridge, DNS, ports
+#   Phase 2 (Docker stopped): proxyfail, sso, authconfig, proxy file fallback
+# All fix function output is redirected to a timestamped log file so the
+# menu stays clean. A single status line is printed to the terminal.
+#
+# This function is intentionally not listed in show_main_menu. It is
+# triggered by selecting option 9 from the no-active-lab menu.
+silent_fix_all() {
+    local log_file
+    log_file="$STATE_DIR/fix_all_$(date +%Y%m%d_%H%M%S).log"
+
+    printf "Restoring environment..."
+
+    # ------------------------------------------------------------------
+    # Phase 1: fixes that require a running Docker daemon.
+    # fix_bridge internally stops and restarts Docker Desktop; DNS and
+    # ports run against the freshly restarted daemon.
+    # ------------------------------------------------------------------
+    {
+        fix_bridge
+        fix_dns
+        fix_ports
+    } >> "$log_file" 2>&1
+
+    printf "."
+
+    # ------------------------------------------------------------------
+    # Stop Docker Desktop before writing to settings-store.json.
+    # Docker flushes its in-memory config on a clean shutdown; stopping
+    # first prevents that flush from overwriting the fix writes below.
+    # ------------------------------------------------------------------
+    stop_docker_desktop >> "$log_file" 2>&1
+
+    printf "."
+
+    # ------------------------------------------------------------------
+    # Phase 2: fixes that write to settings-store.json.
+    # fix_proxy falls back to the file path automatically when the
+    # backend socket is absent (Docker is stopped).
+    # ------------------------------------------------------------------
+    {
+        fix_proxyfail
+        fix_sso
+        fix_authconfig
+        fix_proxy
+    } >> "$log_file" 2>&1
+
+    printf "."
+
+    # ------------------------------------------------------------------
+    # Restart Docker Desktop with corrected settings.
+    # ------------------------------------------------------------------
+    open -a "Docker Desktop" >> "$log_file" 2>&1
+    local i
+    for i in $(seq 1 60); do
+        if docker info > /dev/null 2>&1; then
+            break
+        fi
+        sleep 2
+    done
+
+    # Clear any active lab state
+    clear_current_scenario
+
+    echo " done."
+    echo "Log: $log_file"
+}
+
 # fix_current_lab - Restore Docker Desktop for the active scenario only.
 #
 # Called by abandon_lab so the environment is clean before the next lab
@@ -987,6 +1058,10 @@ main() {
                     ;;
                 8)
                     show_report_card
+                    read -p "Press enter to continue..."
+                    ;;
+                9)
+                    silent_fix_all
                     read -p "Press enter to continue..."
                     ;;
                 0)
