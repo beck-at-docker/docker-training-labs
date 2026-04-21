@@ -76,6 +76,56 @@ echo "  Python $PYTHON_VERSION found"
 echo ""
 
 # ------------------------------------------------------------------
+# Pre-pull lab images
+#
+# All images required by break and test scripts are pulled now, while
+# Docker Desktop is confirmed running and the user is presumably logged
+# in. This prevents lab runs from failing due to rate-limiting or auth
+# errors when an image isn't cached locally.
+#
+# When invoked via sudo (bootstrap path), the pull runs as the invoking
+# user via 'sudo -u' so images land in their Docker daemon context, not
+# root's.
+# ------------------------------------------------------------------
+echo "Pre-pulling lab images (this may take a minute)..."
+
+if [ "$EUID" -eq 0 ] && [ -n "$SUDO_USER" ]; then
+    DOCKER_PULL="sudo -u $SUDO_USER docker pull"
+else
+    DOCKER_PULL="docker pull"
+fi
+
+# Images used by break scripts and test scripts across all 7 labs.
+# Failures are non-fatal: if a pull fails the lab can still run if
+# the image is already cached, but a warning is printed so the trainer
+# knows to investigate before the session.
+LAB_IMAGES=(
+    "nginx:alpine"      # break_ports (80, 443), break_bridge (broken-web)
+    "mysql:8"           # break_ports (3306)
+    "postgres:alpine"   # break_ports (5432)
+    "alpine:latest"     # break_dns + break_bridge (nsenter, sleep containers)
+)
+
+PULL_FAILURES=0
+for image in "${LAB_IMAGES[@]}"; do
+    printf "  %-25s" "$image"
+    if $DOCKER_PULL "$image" > /dev/null 2>&1; then
+        echo "OK"
+    else
+        echo "FAILED (will retry at lab runtime)"
+        PULL_FAILURES=$((PULL_FAILURES + 1))
+    fi
+done
+
+if [ "$PULL_FAILURES" -gt 0 ]; then
+    echo ""
+    echo "  Warning: $PULL_FAILURES image(s) could not be pre-pulled."
+    echo "  Make sure Docker Desktop is logged in and has network access,"
+    echo "  or the affected labs may fail when a trainee runs them."
+fi
+echo ""
+
+# ------------------------------------------------------------------
 # Create directories
 # ------------------------------------------------------------------
 echo "Creating installation directories..."
