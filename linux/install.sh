@@ -166,6 +166,69 @@ echo "Creating command-line tool..."
 sudo ln -sf "$INSTALL_DIR/troubleshootlinuxlab" "$BIN_DIR/troubleshootlinuxlab"
 echo "  Command 'troubleshootlinuxlab' is now available"
 echo ""
+# ------------------------------------------------------------------
+# Configure bash history so --check always sees current session commands
+# ------------------------------------------------------------------
+# By default bash overwrites ~/.bash_history on exit and only flushes
+# in-memory history then. These four settings fix that:
+#   histappend     - append rather than overwrite on exit
+#   HISTSIZE       - keep 10k commands in memory
+#   HISTFILESIZE   - keep 20k lines on disk
+#   PROMPT_COMMAND - write each command to disk immediately after it runs
+echo "Configuring bash history..."
+
+HIST_MARKER="# Added by Docker Desktop Training Labs"
+RC_FILE="$HOME/.bashrc"
+
+if ! grep -qF "$HIST_MARKER" "$RC_FILE" 2>/dev/null; then
+    echo "" >> "$RC_FILE"
+    echo "# Added by Docker Desktop Training Labs" >> "$RC_FILE"
+    echo "shopt -s histappend" >> "$RC_FILE"
+    echo "HISTSIZE=10000" >> "$RC_FILE"
+    echo "HISTFILESIZE=20000" >> "$RC_FILE"
+    echo 'PROMPT_COMMAND="history -a${PROMPT_COMMAND:+; $PROMPT_COMMAND}"' >> "$RC_FILE"
+    echo "  History settings added to $RC_FILE"
+    echo "  Run 'source $RC_FILE' or open a new terminal to activate"
+else
+    echo "  History settings already present in $RC_FILE"
+fi
+echo ""
+
+# Note: $STATE_DIR is created in the "Initialise state files" block below,
+# as the real user, so it is owned correctly.
+
+echo "  Directories created"
+echo ""
+
+# ------------------------------------------------------------------
+# Copy files
+# ------------------------------------------------------------------
+echo "Installing training lab files..."
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+sudo cp "$SCRIPT_DIR/troubleshootlinuxlab"   "$INSTALL_DIR/"
+sudo chmod +x "$INSTALL_DIR/troubleshootlinuxlab"
+
+sudo cp "$SCRIPT_DIR/lib/"*.sh               "$INSTALL_DIR/lib/"
+sudo chmod +x "$INSTALL_DIR/lib/"*.sh
+
+sudo cp "$SCRIPT_DIR/scenarios/"*.sh         "$INSTALL_DIR/scenarios/"
+sudo chmod +x "$INSTALL_DIR/scenarios/"*.sh
+
+sudo cp "$SCRIPT_DIR/tests/"*.sh             "$INSTALL_DIR/tests/"
+sudo chmod +x "$INSTALL_DIR/tests/"*.sh
+
+echo "  Files installed to $INSTALL_DIR"
+echo ""
+
+# ------------------------------------------------------------------
+# Create symlink so 'troubleshootlinuxlab' works from any shell
+# ------------------------------------------------------------------
+echo "Creating command-line tool..."
+sudo ln -sf "$INSTALL_DIR/troubleshootlinuxlab" "$BIN_DIR/troubleshootlinuxlab"
+echo "  Command 'troubleshootlinuxlab' is now available"
+echo ""
 
 # ------------------------------------------------------------------
 # Add shell wrapper so history is flushed before --check
