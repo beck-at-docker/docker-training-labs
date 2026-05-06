@@ -168,6 +168,27 @@ echo "  Command 'troubleshootlinuxlab' is now available"
 echo ""
 
 # ------------------------------------------------------------------
+# Add shell wrapper function so history is flushed before --check
+# ------------------------------------------------------------------
+# bash only writes history to disk on shell exit. The wrapper calls
+# 'history -a' in the interactive shell first, so the subprocess that
+# runs --check reads an up-to-date history file.
+echo "Configuring shell integration..."
+
+SHELL_MARKER="# Added by Docker Desktop Training Labs"
+SHELL_FUNCTION='troubleshootlinuxlab() { history -a 2>/dev/null; /usr/local/lib/docker-training-labs/troubleshootlinuxlab "$@"; }'
+
+RC_FILE="$HOME/.bashrc"
+if ! grep -qF "$SHELL_MARKER" "$RC_FILE" 2>/dev/null; then
+    { echo ""; echo "$SHELL_MARKER"; echo "$SHELL_FUNCTION"; } >> "$RC_FILE"
+    echo "  Shell integration added to $RC_FILE"
+    echo "  Run 'source $RC_FILE' or open a new terminal to activate"
+else
+    echo "  Shell integration already present in $RC_FILE"
+fi
+echo ""
+
+# ------------------------------------------------------------------
 # Initialise state files
 # ------------------------------------------------------------------
 echo "Initialising training environment..."

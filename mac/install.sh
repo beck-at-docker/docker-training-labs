@@ -66,6 +66,33 @@ sudo ln -sf "$INSTALL_DIR/troubleshootmaclab" "$BIN_DIR/troubleshootmaclab"
 echo "Command 'troubleshootmaclab' is now available"
 echo ""
 
+# Add shell wrapper functions so history is flushed before --check.
+# zsh (default since Catalina) only writes history on exit unless
+# INC_APPEND_HISTORY is set; bash requires 'history -a'. The wrapper
+# runs the flush in the interactive shell before calling the binary.
+echo "Configuring shell integration..."
+
+SHELL_MARKER="# Added by Docker Desktop Training Labs"
+ZSH_FUNCTION='troubleshootmaclab() { fc -W 2>/dev/null; /usr/local/lib/docker-training-labs/troubleshootmaclab "$@"; }'
+BASH_FUNCTION='troubleshootmaclab() { history -a 2>/dev/null; /usr/local/lib/docker-training-labs/troubleshootmaclab "$@"; }'
+
+REAL_HOME=$(eval echo ~"${SUDO_USER:-$USER}")
+ZSH_RC="$REAL_HOME/.zshrc"
+BASH_RC="$REAL_HOME/.bash_profile"
+
+if ! grep -qF "$SHELL_MARKER" "$ZSH_RC" 2>/dev/null; then
+    { echo ""; echo "$SHELL_MARKER"; echo "$ZSH_FUNCTION"; } >> "$ZSH_RC"
+    chown "${SUDO_USER:-$USER}" "$ZSH_RC"
+    echo "  Shell integration added to $ZSH_RC"
+fi
+if ! grep -qF "$SHELL_MARKER" "$BASH_RC" 2>/dev/null; then
+    { echo ""; echo "$BASH_FUNCTION_MARKER"; echo "$BASH_FUNCTION"; } >> "$BASH_RC"
+    chown "${SUDO_USER:-$USER}" "$BASH_RC"
+    echo "  Shell integration added to $BASH_RC"
+fi
+echo "  Run 'source ~/.zshrc' or open a new terminal to activate"
+echo ""
+
 # Create user state directories with correct ownership.
 #
 # When this installer is invoked via 'sudo ./install.sh', $HOME and $USER

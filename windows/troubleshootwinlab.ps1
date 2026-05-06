@@ -473,17 +473,17 @@ function Check-Lab {
     $reportFile = "$REPORTS_DIR\${current}_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
     $testOutput | Set-Content $reportFile
 
-    # Append command history so instructors can review what the trainee tried
-    try   { $historyPath = (Get-PSReadLineOption).HistorySavePath }
-    catch { $historyPath = "$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt" }
+    # Append command history so instructors can review what the trainee tried.
+    # Get-History reads in-memory session history — always current, no file flush needed.
     Add-Content $reportFile ""
     Add-Content $reportFile "========================================"
     Add-Content $reportFile "Command History (last 100 commands)"
     Add-Content $reportFile "========================================"
-    if (Test-Path $historyPath) {
-        Get-Content $historyPath -Tail 100 | Add-Content $reportFile
+    $sessionHistory = Get-History -Count 100 | ForEach-Object { $_.CommandLine }
+    if ($sessionHistory) {
+        $sessionHistory | Add-Content $reportFile
     } else {
-        Add-Content $reportFile "(No command history file found)"
+        Add-Content $reportFile "(No command history in this session)"
     }
 
     # Record grade
