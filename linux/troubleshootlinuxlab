@@ -598,6 +598,20 @@ check_lab() {
     local report_file="$REPORTS_DIR/${current_scenario}_$(date +%Y%m%d_%H%M%S).txt"
     cp "$test_output" "$report_file"
 
+    # Append command history so instructors can review what the trainee tried
+    {
+        echo ""
+        echo "========================================"
+        echo "Command History (last 100 commands)"
+        echo "========================================"
+        local history_file="${HISTFILE:-$HOME/.bash_history}"
+        if [ -f "$history_file" ]; then
+            tail -100 "$history_file"
+        else
+            echo "(No command history file found)"
+        fi
+    } >> "$report_file"
+
     # Record the grade in the CSV
     record_grade "$USER" "$current_scenario" "$score" "$duration"
 
@@ -629,7 +643,7 @@ check_lab() {
     fi
 
     echo ""
-    echo "Full report saved to:"
+    echo "Full report (including command history) saved to:"
     echo "  $report_file"
     echo ""
 

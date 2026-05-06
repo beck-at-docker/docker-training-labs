@@ -473,6 +473,19 @@ function Check-Lab {
     $reportFile = "$REPORTS_DIR\${current}_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
     $testOutput | Set-Content $reportFile
 
+    # Append command history so instructors can review what the trainee tried
+    try   { $historyPath = (Get-PSReadLineOption).HistorySavePath }
+    catch { $historyPath = "$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt" }
+    Add-Content $reportFile ""
+    Add-Content $reportFile "========================================"
+    Add-Content $reportFile "Command History (last 100 commands)"
+    Add-Content $reportFile "========================================"
+    if (Test-Path $historyPath) {
+        Get-Content $historyPath -Tail 100 | Add-Content $reportFile
+    } else {
+        Add-Content $reportFile "(No command history file found)"
+    }
+
     # Record grade
     Record-Grade $env:USERNAME $current $score $durationSec
 
@@ -491,7 +504,7 @@ function Check-Lab {
     else                  { Write-Red   "The issue wasn't fully resolved. Review the diagnostic steps and retry." }
 
     Write-Host ""
-    Write-Host "Full report saved to:"
+    Write-Host "Full report (including command history) saved to:"
     Write-Host "  $reportFile"
     Write-Host ""
 

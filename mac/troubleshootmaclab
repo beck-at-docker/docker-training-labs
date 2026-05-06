@@ -533,7 +533,23 @@ check_lab() {
     # Save the full report
     local report_file="$REPORTS_DIR/${current_scenario}_$(date +%Y%m%d_%H%M%S).txt"
     cat "$test_output" > "$report_file"
-    
+
+    # Append command history so instructors can review what the trainee tried.
+    # macOS defaults to zsh since Catalina; prefer ~/.zsh_history when present.
+    {
+        echo ""
+        echo "========================================"
+        echo "Command History (last 100 commands)"
+        echo "========================================"
+        if [ -f "$HOME/.zsh_history" ]; then
+            tail -100 "$HOME/.zsh_history"
+        elif [ -f "$HOME/.bash_history" ]; then
+            tail -100 "$HOME/.bash_history"
+        else
+            echo "(No command history file found)"
+        fi
+    } >> "$report_file"
+
     # Record the grade
     record_grade "$USER" "$current_scenario" "$score" "$duration"
     
@@ -566,7 +582,7 @@ check_lab() {
     fi
     
     echo ""
-    echo "Full report saved to:"
+    echo "Full report (including command history) saved to:"
     echo "  $report_file"
     echo ""
     
