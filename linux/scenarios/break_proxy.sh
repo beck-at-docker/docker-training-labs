@@ -169,26 +169,53 @@ EOF
 echo "  Shell RC updated: $SHELL_RC"
 
 # ------------------------------------------------------------------
-# Wait for the proxy to become observable.
+# Verify the proxy settings took effect by reading them back.
 #
-# The API applies settings to the live httpproxy process immediately,
-# but there can be a brief lag before docker info reflects the change.
-# Poll for up to 30 seconds before declaring success.
+# The API applies settings to the live httpproxy process immediately;
+# in practice the read-back lands within a single iteration. We GET
+# /app/settings via the same backend socket and confirm that BOTH:
+#
+#   - mode is "manual" (not silently downgraded back to "system")
+#   - http value contains 192.0.2.1
+#
+# on BOTH the daemon-level proxy (vm.proxy) and the container-level
+# proxy (vm.containersProxy). Checking mode alongside the value is
+# important: a value-only grep would false-positive if mode flips back
+# to "system" but the http value is left intact.
+#
+# --max-time 2 bounds the GET so it cannot hang.
+#
+# A docker pull check is deliberately NOT used here. With the proxy
+# active and pointed at the silent-drop RFC 5737 address (192.0.2.1),
+# a pull blocks for the full TCP SYN timeout per attempt, turning the
+# polling loop into a multi-minute hang. The trainee will run docker
+# pull themselves to observe the symptom; the break script must not.
 # ------------------------------------------------------------------
 echo ""
-echo "  Waiting for proxy settings to take effect..."
+echo "  Verifying proxy settings took effect..."
 PROXY_ACTIVE=0
-for i in $(seq 1 15); do
-    # Primary check: docker info should report the bogus proxy address
-    if docker info 2>/dev/null | grep -q "192.0.2.1"; then
-        PROXY_ACTIVE=1
-        break
-    fi
+for i in $(seq 1 8); do
+    SETTINGS_BACK=$(curl \
+        --silent \
+        --max-time 2 \
+        --unix-socket "$BACKEND_SOCK" \
+        "http://localhost/app/settings" 2>/dev/null || true)
 
-    # Secondary check: attempt a pull and look for the bogus proxy
-    # address in the failure output
-    PULL_ERR=$(docker pull hello-world:latest 2>&1 || true)
-    if echo "$PULL_ERR" | grep -q "192.0.2.1"; then
+    if [ -n "$SETTINGS_BACK" ] && \
+       printf '%s' "$SETTINGS_BACK" | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    for key in ('proxy', 'containersProxy'):
+        section = d.get('vm', {}).get(key, {})
+        if section.get('mode', {}).get('value') != 'manual':
+            sys.exit(1)
+        if '192.0.2.1' not in section.get('http', {}).get('value', ''):
+            sys.exit(1)
+    sys.exit(0)
+except Exception:
+    sys.exit(2)
+" 2>/dev/null; then
         PROXY_ACTIVE=1
         break
     fi
@@ -197,9 +224,11 @@ for i in $(seq 1 15); do
 done
 
 if [ "$PROXY_ACTIVE" -eq 0 ]; then
-    echo "  Warning: proxy not yet visible in docker info or pull output after 30s"
-    echo "  Settings were applied via the API - the break may still be active."
-    echo "  Try: docker pull hello-world (should time out or fail with a proxy error)"
+    echo "  Warning: proxy mode/value not confirmed via API after ~16s"
+    echo "  The POST returned success, but the readback did not show"
+    echo "  mode=manual with the bogus address on both proxy paths."
+    echo "  Verify manually:"
+    echo "    curl --unix-socket \$BACKEND_SOCK http://localhost/app/settings | python3 -m json.tool | grep -A4 '\"proxy\"'"
 fi
 
 echo ""

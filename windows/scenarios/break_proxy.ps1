@@ -129,38 +129,33 @@ try {
 Write-Host "  User-scope proxy environment variables set"
 
 # ------------------------------------------------------------------
-# Wait for the proxy to become observable in the daemon.
+# Verify the proxy is reflected in the daemon by polling docker info.
 #
-# The API applies settings immediately, but there can be a brief lag
-# before docker info reflects the change. Poll in two stages:
-#   Stage 1 - docker info should report the bogus proxy address
-#   Stage 2 - docker pull should fail with a proxy-related error
+# The API applies settings to the live httpproxy process immediately;
+# docker info typically reflects the change within a single iteration.
+#
+# A docker pull check is deliberately NOT used here. With the proxy
+# active and pointed at the silent-drop RFC 5737 address (192.0.2.1),
+# a pull blocks for the full TCP SYN timeout per attempt, turning the
+# polling loop into a multi-minute hang. The trainee will run docker
+# pull themselves to observe the symptom; the break script must not.
 # ------------------------------------------------------------------
 Write-Host ""
-Write-Host "  Waiting for proxy settings to take effect..."
+Write-Host "  Verifying proxy settings took effect..."
 $proxyActive = $false
-for ($i = 0; $i -lt 15; $i++) {
-    # Stage 1: check docker info for the bogus address
+for ($i = 0; $i -lt 8; $i++) {
     $info = docker info 2>&1
     if ($info -match [regex]::Escape("192.0.2")) {
         $proxyActive = $true
         break
     }
-
-    # Stage 2: attempt a pull and look for proxy-related failure
-    $pullErr = docker pull hello-world 2>&1
-    if ($pullErr -match [regex]::Escape("192.0.2") -or $pullErr -match "proxyconnect") {
-        $proxyActive = $true
-        break
-    }
-
     Start-Sleep -Seconds 2
 }
 
 if (-not $proxyActive) {
-    Write-Host "  Warning: proxy not yet visible in docker info or pull output after 30s"
-    Write-Host "  Settings were applied via the API - the break may still be active."
-    Write-Host "  Try: docker pull hello-world (should time out)"
+    Write-Host "  Warning: proxy not visible in docker info after ~16s"
+    Write-Host "  The POST returned success - the break may still be active."
+    Write-Host "  Verify with: docker info | Select-String -Pattern 'proxy'"
 }
 
 Write-Host ""
