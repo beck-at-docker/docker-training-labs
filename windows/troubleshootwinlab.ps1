@@ -447,9 +447,9 @@ function Check-Lab {
 
     # Parse the structured footer written by the test script. Select-Object
     # -Last 1 guards against any accidental duplicate matches earlier in output.
-    $score       = ($testOutput | Select-String "^Score: (\d+)%"   | Select-Object -Last 1).Matches.Groups[1].Value
-    $testsPassed = ($testOutput | Select-String "^Tests Passed: (\d+)").Matches.Groups[1].Value
-    $testsFailed = ($testOutput | Select-String "^Tests Failed: (\d+)").Matches.Groups[1].Value
+    $score       = ($testOutput | Select-String "^Score: (\d+)%"    | Select-Object -Last 1).Matches.Groups[1].Value
+    $testsPassed = ($testOutput | Select-String "^Tests Passed: (\d+)" | Select-Object -Last 1).Matches.Groups[1].Value
+    $testsFailed = ($testOutput | Select-String "^Tests Failed: (\d+)" | Select-Object -Last 1).Matches.Groups[1].Value
 
     $score       = if ($score) { [int]$score } else { 0 }
     $testsPassed = if ($testsPassed) { [int]$testsPassed } else { 0 }
@@ -474,16 +474,20 @@ function Check-Lab {
     $testOutput | Set-Content $reportFile
 
     # Append command history so instructors can review what the trainee tried.
-    # Get-History reads in-memory session history — always current, no file flush needed.
+    # Get-History only sees the current process's session, which is useless here
+    # because the .cmd shim always spawns a fresh powershell.exe with no history.
+    # Instead read PSReadLine's persistent history file, which the trainee's
+    # interactive session writes to continuously — the same approach mac/linux
+    # use with ~/.zsh_history and $HISTFILE.
     Add-Content $reportFile ""
     Add-Content $reportFile "========================================"
     Add-Content $reportFile "Command History (last 100 commands)"
     Add-Content $reportFile "========================================"
-    $sessionHistory = Get-History -Count 100 | ForEach-Object { $_.CommandLine }
-    if ($sessionHistory) {
-        $sessionHistory | Add-Content $reportFile
+    $psHistoryPath = (Get-PSReadLineOption).HistorySavePath
+    if ($psHistoryPath -and (Test-Path $psHistoryPath)) {
+        Get-Content $psHistoryPath -Tail 100 | Add-Content $reportFile
     } else {
-        Add-Content $reportFile "(No command history in this session)"
+        Add-Content $reportFile "(No PSReadLine history file found)"
     }
 
     # Record grade

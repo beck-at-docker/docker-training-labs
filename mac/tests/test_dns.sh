@@ -9,9 +9,9 @@
 # Scoring:
 #   Full marks  - docker pull works AND the DROP rules are gone, confirmed via
 #                 direct iptables inspection inside the VM.
-#   Partial     - docker pull works but the DROP rules cannot be confirmed gone
-#                 (e.g. Docker Desktop was restarted, wiping the VM). Service
-#                 is restored but the root cause was not directly addressed.
+#   Full marks  - docker pull works AND iptables shows no DROP rules after a
+#                 Docker Desktop restart (VM is ephemeral; restart also clears
+#                 the rules and is accepted as a valid last resort).
 #
 # Output contract (parsed by check_lab() in troubleshootmaclab):
 #   Score: <n>%

@@ -28,6 +28,10 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+if [ ! -t 1 ]; then
+    RED='' GREEN='' YELLOW='' BLUE='' NC=''
+fi
+
 # Counters
 TESTS_RUN=0
 TESTS_PASSED=0
