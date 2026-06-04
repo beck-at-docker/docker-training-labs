@@ -1,18 +1,9 @@
 #!/bin/bash
 # bootstrap.sh - One-command installer for Docker Training Labs from GitHub
-#
-# Usage:
-#   export GH_TOKEN=$(gh auth token)
-#   curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
-#     "https://raw.githubusercontent.com/docker/docker-training-labs/main/mac/bootstrap.sh" \
-#     | bash
-#
-# Override branch:
-#   BRANCH=dev <above command>
 
 set -e
 
-GITHUB_REPO="docker/docker-training-labs"
+GITHUB_REPO="beck-at-docker/docker-training-labs"
 BRANCH="${BRANCH:-main}"
 TEMP_DIR=$(mktemp -d)
 
@@ -20,18 +11,6 @@ echo "=========================================="
 echo "Docker Desktop Training Labs Installer"
 echo "=========================================="
 echo ""
-
-# Require a GitHub token — the repo is private.
-if [ -z "$GH_TOKEN" ]; then
-    echo "Error: GH_TOKEN is not set."
-    echo ""
-    echo "Run:"
-    echo "  export GH_TOKEN=\$(gh auth token)"
-    echo "  curl -fsSL -H \"Authorization: Bearer \$GH_TOKEN\" \\"
-    echo "    \"https://raw.githubusercontent.com/${GITHUB_REPO}/main/mac/bootstrap.sh\" \\"
-    echo "    | bash"
-    exit 1
-fi
 
 # Check prerequisites
 echo "Checking prerequisites..."
@@ -55,15 +34,11 @@ echo "Downloading training labs from GitHub..."
 cd "$TEMP_DIR"
 
 if command -v git &> /dev/null; then
-    git clone --depth 1 --branch "$BRANCH" \
-        "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPO}.git" docker-training-labs
+    git clone --depth 1 --branch "$BRANCH" "https://github.com/${GITHUB_REPO}.git" docker-training-labs
 else
     # Fallback to downloading tarball if git not available
     echo "Git not found, downloading tarball..."
-    curl -fsSL -L \
-        -H "Authorization: Bearer $GH_TOKEN" \
-        "https://github.com/${GITHUB_REPO}/archive/refs/heads/${BRANCH}.tar.gz" \
-        | tar -xz
+    curl -fsSL "https://github.com/${GITHUB_REPO}/archive/refs/heads/${BRANCH}.tar.gz" | tar -xz
     mv "docker-training-labs-${BRANCH}" docker-training-labs
 fi
 
