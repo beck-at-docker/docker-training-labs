@@ -1,18 +1,20 @@
 # bootstrap.ps1 - One-command installer for Docker Desktop Training Labs (Windows)
 #
 # Usage (run from any PowerShell window - elevation is handled automatically):
-#   irm https://raw.githubusercontent.com/beck-at-docker/docker-training-labs/main/windows/bootstrap.ps1 | iex
+#   $env:GH_TOKEN = gh auth token
+#   irm "https://raw.githubusercontent.com/docker/docker-training-labs/main/windows/bootstrap.ps1" `
+#     -Headers @{ Authorization = "Bearer $env:GH_TOKEN" } | iex
 #
 # Override branch:
-#   $env:BRANCH="dev"; irm https://raw.githubusercontent.com/beck-at-docker/docker-training-labs/main/windows/bootstrap.ps1 | iex
+#   $env:BRANCH = "dev"; <above command>
 
 #Requires -Version 5.1
 
 $ErrorActionPreference = "Stop"
 
-$GITHUB_REPO = "beck-at-docker/docker-training-labs"
-$BRANCH      = if ($env:BRANCH) { $env:BRANCH } else { "main" }
-$ZIP_URL     = "https://github.com/$GITHUB_REPO/archive/refs/heads/$BRANCH.zip"
+$GITHUB_REPO = "docker/docker-training-labs"
+$BRANCH      = if ($env:BRANCH)   { $env:BRANCH }   else { "main" }
+$GH_TOKEN    = if ($env:GH_TOKEN) { $env:GH_TOKEN } else { $null }
 
 Write-Host ""
 Write-Host "=========================================="
@@ -21,14 +23,27 @@ Write-Host "=========================================="
 Write-Host ""
 
 # ------------------------------------------------------------------
+# Require a GitHub token — the repo is private.
+# ------------------------------------------------------------------
+if (-not $GH_TOKEN) {
+    Write-Host "ERROR: GH_TOKEN is not set."
+    Write-Host ""
+    Write-Host "Run:"
+    Write-Host '  $env:GH_TOKEN = gh auth token'
+    Write-Host '  irm "https://raw.githubusercontent.com/docker/docker-training-labs/main/windows/bootstrap.ps1" `'
+    Write-Host '    -Headers @{ Authorization = "Bearer $env:GH_TOKEN" } | iex'
+    Write-Host ""
+    pause; exit 1
+}
+
+# ------------------------------------------------------------------
 # Self-elevate if not running as Administrator
 #
 # install.ps1 writes to $env:ProgramData and $env:SystemRoot\System32,
-# both of which require elevation. Rather than failing with an access
-# error, bootstrap re-launches itself elevated via Start-Process -Verb
-# RunAs, which triggers the UAC prompt. The elevated process re-downloads
-# and re-runs the bootstrap so the full flow runs under elevation.
-# $env:BRANCH is forwarded so a custom branch selection is preserved.
+# both of which require elevation. Bootstrap re-launches itself elevated
+# via Start-Process -Verb RunAs, which triggers the UAC prompt.
+# $env:BRANCH and $env:GH_TOKEN are forwarded so they survive the
+# elevation boundary.
 # ------------------------------------------------------------------
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
     [Security.Principal.WindowsBuiltInRole]::Administrator
@@ -38,8 +53,10 @@ if (-not $isAdmin) {
     Write-Host "Administrator privileges required."
     Write-Host "Re-launching in an elevated window..."
     Write-Host ""
-    $scriptUrl = "https://raw.githubusercontent.com/$GITHUB_REPO/refs/heads/$BRANCH/windows/bootstrap.ps1"
-    $elevatedCmd = "& { `$env:BRANCH='$BRANCH'; irm '$scriptUrl' | iex }"
+    $scriptUrl    = "https://raw.githubusercontent.com/$GITHUB_REPO/refs/heads/$BRANCH/windows/bootstrap.ps1"
+    $authHeader   = "Bearer $GH_TOKEN"
+    $elevatedCmd  = "& { `$env:BRANCH='$BRANCH'; `$env:GH_TOKEN='$GH_TOKEN'; " +
+                    "`$h=@{Authorization='$authHeader'}; irm '$scriptUrl' -Headers `$h | iex }"
     Start-Process powershell -Verb RunAs -ArgumentList "-ExecutionPolicy", "Bypass", "-Command", $elevatedCmd -Wait
     exit 0
 }
@@ -78,6 +95,7 @@ Write-Host ""
 $tempDir  = Join-Path $env:TEMP "docker-training-labs-$(Get-Random)"
 $zipPath  = Join-Path $tempDir "labs.zip"
 $unzipDir = Join-Path $tempDir "extracted"
+$ZIP_URL  = "https://github.com/$GITHUB_REPO/archive/refs/heads/$BRANCH.zip"
 
 New-Item -ItemType Directory -Force -Path $tempDir  | Out-Null
 New-Item -ItemType Directory -Force -Path $unzipDir | Out-Null
@@ -89,12 +107,13 @@ Write-Host ""
 
 try {
     $ProgressPreference = "SilentlyContinue"
-    Invoke-WebRequest -Uri $ZIP_URL -OutFile $zipPath -UseBasicParsing
+    Invoke-WebRequest -Uri $ZIP_URL -OutFile $zipPath -UseBasicParsing `
+        -Headers @{ Authorization = "Bearer $GH_TOKEN" }
     $ProgressPreference = "Continue"
     Write-Host "  [OK] Download complete"
 } catch {
     Write-Host "ERROR: Download failed: $_"
-    Write-Host "       Check your internet connection or verify the repository is accessible."
+    Write-Host "       Verify your GH_TOKEN has read access to $GITHUB_REPO."
     pause; exit 1
 }
 
