@@ -20,8 +20,7 @@ Write-Host "Checking prerequisites..."
 # That mechanism only exists in the WSL2 backend; Hyper-V uses a different
 # VM architecture where the same docker run --privileged approach may not
 # reach the correct network namespace.
-$dockerInfo = docker info 2>$null | Out-String
-if ($dockerInfo -notmatch "WSL") {
+$dockerInfo = & { $ErrorActionPreference = "Continue"; docker info 2>$null | Out-String }if ($dockerInfo -notmatch "WSL") {
     Write-Host ""
     Write-Host "WARNING: This lab suite targets the WSL2 backend."
     Write-Host "         Your Docker Desktop may be configured for Hyper-V."
