@@ -49,18 +49,7 @@ if (-not $isAdmin) {
 # ------------------------------------------------------------------
 Write-Host "Checking prerequisites..."
 
-try {
-    docker info 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "exit code $LASTEXITCODE" }
-    Write-Host "  [OK] Docker Desktop is running"
-} catch {
-    Write-Host ""
-    Write-Host "ERROR: Docker Desktop is not running (or not installed)."
-    Write-Host "       Install and start Docker Desktop, then re-run this installer."
-    Write-Host "       https://www.docker.com/products/docker-desktop"
-    Write-Host ""
-    pause; exit 1
-}
+
 
 $psVer = $PSVersionTable.PSVersion
 Write-Host "  [OK] PowerShell $($psVer.Major).$($psVer.Minor)"
