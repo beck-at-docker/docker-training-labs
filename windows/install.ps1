@@ -14,14 +14,6 @@ Write-Host ""
 # Prerequisites
 Write-Host "Checking prerequisites..."
 
-try {
-    docker info 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw }
-    Write-Host "  Docker Desktop is running"
-} catch {
-    Write-Host "ERROR: Docker Desktop is not running. Please start it first."
-    exit 1
-}
 
 # Confirm WSL2 backend.
 # The break scenarios inject iptables rules inside the Docker VM via nsenter.
