@@ -269,40 +269,44 @@ EOF
             ;;
         SSO)
             cat << 'EOF'
-Problem: Docker Desktop keeps signing you out immediately
+Problem: docker login fails but Docker Desktop is signed in
 
-After starting Docker Desktop, you find yourself signed out.
-When you try to sign back in - via SSO or plain docker login -
-the auth flow completes successfully, but Docker Desktop
-immediately reverts to a signed-out state. Every attempt loops.
+Docker Desktop shows you as signed in and image pulls work fine.
+However, when you try to authenticate via the CLI using
+"docker login", it fails with a credential helper error.
+
+This matters in automation and scripting contexts where the CLI
+must authenticate independently of the Docker Desktop GUI session.
 
 Symptoms you should observe:
-  - Docker Desktop shows you as signed out
-  - docker info shows no Username field
-  - docker pull still works for public images
-  - Auth appears to complete but nothing sticks
+  - Docker Desktop GUI shows you as signed in
+  - docker pull works for public images
+  - docker login fails with a credential helper error:
+      Error saving credentials: error storing credentials - err:
+      exec: "docker-credential-...": executable file not found in $PATH
+  - docker info shows no Username field (CLI is not authenticated)
 
-The fact that pulls still work tells you the Docker daemon is
-healthy and network connectivity is fine. Something is
-preventing credentials from being saved after a successful login.
+The CLI and Docker Desktop manage credentials separately on Linux.
+Docker Desktop maintains its own session. The CLI uses a credential
+helper binary defined in ~/.docker/config.json to save and retrieve
+tokens. If that binary doesn't exist, the CLI cannot save credentials
+even after a successful login attempt.
 
 Diagnostic Commands to Try:
   docker info | grep -i username
-  docker pull alpine:latest
-  cat ~/.docker/config.json
   docker login
+  cat ~/.docker/config.json
+  which docker-credential-desktop
 
 Look for:
   - A "credsStore" key in ~/.docker/config.json
-  - Its value: should be a credential helper binary that actually
-    exists on your system (e.g. "desktop" requires the binary
-    docker-credential-desktop to be in your PATH)
+  - Its value: should name a binary that exists on your system
+    e.g. "desktop" requires docker-credential-desktop in PATH
   - Run: which docker-credential-<value> to verify it exists
 
-If the binary doesn't exist, Docker cannot save the token after
-auth completes - hence the loop. Fix the credsStore value (or
-remove the key entirely to use Docker's default), sign back in,
-then run troubleshootlinuxlab --check.
+Fix the credsStore value (or remove the key entirely to let Docker
+use its default), then run docker login again and re-run
+troubleshootlinuxlab --check.
 EOF
             ;;
         BRIDGE)
