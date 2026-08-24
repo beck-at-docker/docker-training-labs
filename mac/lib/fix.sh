@@ -401,6 +401,72 @@ PYEOF
     echo "NOTE: Sign back in manually after Docker Desktop restarts: docker login"
 }
 
+# fix_credhelper - Restore the credsStore in ~/.docker/config.json.
+#
+# break_credhelper.sh sets credsStore to a helper name with no matching
+# binary in $PATH. Restores from the pre-break backup if present, otherwise
+# resets credsStore to the correct Mac default ("desktop").
+#
+# The file edit works whether or not Docker Desktop is running, and no
+# restart is needed - the CLI reads config.json fresh on every invocation.
+fix_credhelper() {
+    local config_file="$HOME/.docker/config.json"
+    local latest_backup
+    echo "Removing broken credential helper configuration..."
+
+    if [ -f "$config_file" ]; then
+        latest_backup=$(ls -t "${config_file}.backup-credhelper-"* 2>/dev/null | head -1)
+        if [ -n "$latest_backup" ]; then
+            cp "$latest_backup" "$config_file"
+            echo "  Restored config.json from backup: $(basename "$latest_backup")"
+        else
+            echo "  No backup found, resetting credsStore to 'desktop'"
+            python3 - "$config_file" << 'PYEOF'
+import json, sys
+path = sys.argv[1]
+with open(path, 'r') as f:
+    data = json.load(f)
+data['credsStore'] = 'desktop'
+with open(path, 'w') as f:
+    json.dump(data, f, indent=2)
+PYEOF
+            echo "  credsStore reset to 'desktop'"
+        fi
+    else
+        echo "  config.json not found - nothing to fix"
+    fi
+
+    echo ""
+    echo "Verifying credential resolution..."
+    if docker pull hello-world > /dev/null 2>&1; then
+        echo "  Credential helper restored"
+        docker rmi hello-world > /dev/null 2>&1 || true
+    else
+        echo "  Still failing - check 'docker pull hello-world' output directly"
+    fi
+}
+
+# fix_disk - Remove the disk-filling container/volume from break_disk.sh.
+#
+# The break's only effect is the oversized file inside disk-hog-volume;
+# removing the volume frees the space immediately. Requires a running
+# Docker daemon; no restart needed since nothing outside Docker's own
+# storage was touched.
+fix_disk() {
+    echo "Cleaning up disk space consumers..."
+
+    docker rm -f disk-hog 2>/dev/null && echo "  Removed disk-hog container" || true
+    docker volume rm -f disk-hog-volume 2>/dev/null && echo "  Removed disk-hog-volume" || true
+
+    echo ""
+    echo "Verifying free space..."
+    if docker run --rm alpine:latest sh -c "dd if=/dev/zero of=/tmp/disk_check bs=1M count=100 2>/dev/null && rm -f /tmp/disk_check"; then
+        echo "  Disk space restored"
+    else
+        echo "  Disk still constrained - consider 'docker system prune -a --volumes' or increasing the disk image size in Docker Desktop > Settings > Resources"
+    fi
+}
+
 # fix_ports - Remove port-squatter containers and background HTTP processes.
 #
 # break_ports.sh starts several containers and a Python HTTP server that hold

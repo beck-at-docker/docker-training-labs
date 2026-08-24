@@ -32,8 +32,9 @@
 #
 # Scenario name convention
 # ------------------------
-#   Lab names (DNS, PORT, BRIDGE, PROXY, SSO, AUTHCONFIG, PROXYFAIL) are stored verbatim in
-#   config.json and lowercased at runtime to derive filenames:
+#   Lab names (DNS, PORT, BRIDGE, PROXY, SSO, AUTHCONFIG, PROXYFAIL, CREDHELPER,
+#   DISK) are stored verbatim in config.json and lowercased at runtime to
+#   derive filenames:
 #     break_dns.sh / test_dns.sh, break_ports.sh / test_port.sh, etc.
 
 # set -e is intentionally omitted. This is an interactive script with a menu
@@ -116,7 +117,11 @@ show_main_menu() {
         echo ""
         echo "7. Proxy Connection Issues"
         echo ""
-        echo "8. View my report card"
+        echo "8. Registry Credential Helper Failure"
+        echo ""
+        echo "9. Disk Space Exhaustion"
+        echo ""
+        echo "10. View my report card"
         echo ""
         echo "0. Exit"
     fi
@@ -164,6 +169,14 @@ start_lab() {
         7)
             lab_name="PROXYFAIL"  # -> scenarios/break_proxyfail.sh, tests/test_proxyfail.sh
             break_script="$INSTALL_DIR/scenarios/break_proxyfail.sh"
+            ;;
+        8)
+            lab_name="CREDHELPER" # -> scenarios/break_credhelper.sh, tests/test_credhelper.sh
+            break_script="$INSTALL_DIR/scenarios/break_credhelper.sh"
+            ;;
+        9)
+            lab_name="DISK"       # -> scenarios/break_disk.sh, tests/test_disk.sh
+            break_script="$INSTALL_DIR/scenarios/break_disk.sh"
             ;;
         *)
             echo -e "${RED}Invalid lab selection${NC}"
@@ -454,6 +467,62 @@ Look for:
 Fix the proxy config and restart Docker Desktop to resolve!
 EOF
             ;;
+        CREDHELPER)
+            cat << 'EOF'
+Problem: Every registry operation fails instantly
+
+docker pull, docker login, and docker push all fail immediately
+with a credential error - before any network request is even made.
+Docker Desktop itself is healthy: docker info works fine, and the
+daemon is running normally.
+
+Symptoms you should observe:
+- docker pull fails instantly with "error getting credentials"
+- The error mentions an exec of a "docker-credential-*" binary
+- docker info shows the daemon healthy with no other errors
+- The failure happens even for public, unauthenticated images
+
+Diagnostic Commands to Try:
+- docker pull hello-world
+- cat ~/.docker/config.json
+- command -v docker-credential-desktop
+
+Look for:
+- A "credsStore" value in ~/.docker/config.json that does not match
+  any docker-credential-<value> binary actually present on your PATH
+
+Fix the credsStore value so it points at a real credential helper,
+then run troubleshootmaclab --check.
+EOF
+            ;;
+        DISK)
+            cat << 'EOF'
+Problem: Docker operations fail with "no space left on device"
+
+docker pull, docker run, and docker build all start failing with a
+disk space error, even though you haven't intentionally downloaded
+anything large. Docker Desktop's VM shares one virtual disk across
+every image, container, and volume - something on it has grown too
+big.
+
+Symptoms you should observe:
+- docker pull / docker run / docker build fail with
+  "no space left on device"
+- docker info still reports the daemon as healthy
+- The problem isn't obvious from `docker ps` alone
+
+Diagnostic Commands to Try:
+- docker pull hello-world
+- docker system df -v
+- docker volume ls
+- docker ps -a
+
+Look for:
+- A volume or container holding an unexpectedly large file
+
+Fix it by identifying and removing whatever is consuming the space!
+EOF
+            ;;
     esac
 }
 
@@ -713,6 +782,8 @@ show_report_card() {
     local proxy_score=""
     local authconfig_score=""
     local proxyfail_score=""
+    local credhelper_score=""
+    local disk_score=""
 
     # Each scenario variable is overwritten on every matching row, so if a
     # trainee attempted the same lab multiple times only the last score is
@@ -730,6 +801,8 @@ show_report_card() {
             PROXY)      proxy_score="$score%" ;;
             AUTHCONFIG) authconfig_score="$score%" ;;
             PROXYFAIL)  proxyfail_score="$score%" ;;
+            CREDHELPER) credhelper_score="$score%" ;;
+            DISK)       disk_score="$score%" ;;
         esac
     done < "$GRADES_FILE"
 
@@ -737,7 +810,8 @@ show_report_card() {
     # trailing '%' that was appended in the case statement above.
     local s
     for s in "$dns_score" "$port_score" "$sso_score" "$bridge_score" \
-              "$proxy_score" "$authconfig_score" "$proxyfail_score"; do
+              "$proxy_score" "$authconfig_score" "$proxyfail_score" \
+              "$credhelper_score" "$disk_score"; do
         [ -n "$s" ] || continue
         total_score=$((total_score + ${s%\%}))
         lab_count=$((lab_count + 1))
@@ -751,6 +825,8 @@ show_report_card() {
     echo "  Pull Problems:       ${proxy_score:-Not attempted}"
     echo "  Auth Config Errors:  ${authconfig_score:-Not attempted}"
     echo "  Proxy Conn Issues:   ${proxyfail_score:-Not attempted}"
+    echo "  Credential Helper:   ${credhelper_score:-Not attempted}"
+    echo "  Disk Space:          ${disk_score:-Not attempted}"
     echo ""
 
     if [ $lab_count -gt 0 ]; then
@@ -784,7 +860,7 @@ show_report_card() {
 # silent_fix_all - Restore all Docker Desktop systems without verbose output.
 #
 # Mirrors the two-phase sequence in scenarios/all.sh:
-#   Phase 1 (Docker running): bridge, DNS, ports
+#   Phase 1 (Docker running): bridge, DNS, ports, credhelper, disk
 #   Phase 2 (Docker stopped): proxyfail, sso, authconfig, proxy file fallback
 # All fix function output is redirected to a timestamped log file so the
 # menu stays clean. A single status line is printed to the terminal.
@@ -806,6 +882,8 @@ silent_fix_all() {
         fix_bridge
         fix_dns
         fix_ports
+        fix_credhelper
+        fix_disk
     } >> "$log_file" 2>&1
 
     printf "."
@@ -860,8 +938,9 @@ silent_fix_all() {
 #
 # Scenarios split into two groups:
 #
-#   Live fixes (DNS, PORT, BRIDGE) - require a running daemon; use nsenter
-#   or docker rm. No Docker Desktop restart is needed.
+#   Live fixes (DNS, PORT, BRIDGE, CREDHELPER, DISK) - require a running
+#   daemon; use nsenter, docker rm, or a plain config.json edit. No Docker
+#   Desktop restart is needed.
 #
 #   Settings fixes (PROXY, PROXYFAIL, SSO, AUTHCONFIG) - write to
 #   settings-store.json. Docker Desktop must be stopped first or its graceful-
@@ -888,6 +967,12 @@ fix_current_lab() {
             ;;
         BRIDGE)
             fix_bridge
+            ;;
+        CREDHELPER)
+            fix_credhelper
+            ;;
+        DISK)
+            fix_disk
             ;;
         PROXY)
             # Proxy fix uses the backend API while Docker is running.
@@ -1068,15 +1153,15 @@ main() {
         else
             # Menu when no lab is active
             case $choice in
-                [1-7])
+                [1-9])
                     start_lab $choice
                     exit 0
                     ;;
-                8)
+                10)
                     show_report_card
                     read -p "Press enter to continue..."
                     ;;
-                9)
+                11)
                     silent_fix_all
                     read -p "Press enter to continue..."
                     ;;
