@@ -74,6 +74,8 @@ echo "  4. Proxy Failure Simulation"
 echo "  5. SSO Configuration"
 echo "  6. Auth Config Enforcement"
 echo "  7. Port Conflicts"
+echo "  8. Credential Helper Failure"
+echo "  9. Disk Space Exhaustion"
 echo ""
 read -p "Continue? (y/N): " confirm
 if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
@@ -91,12 +93,15 @@ failed_steps=()
 # Phase 1: fixes that require Docker to be running.
 #
 # Bridge and DNS inject iptables rules inside the VM via nsenter, which
-# requires a running daemon. Port cleanup uses docker rm. All three must
-# run before Docker Desktop is stopped.
+# requires a running daemon. Port cleanup, the credential helper fix, and
+# the disk space fix all use docker rm / docker volume rm / a config.json
+# edit. All five must run before Docker Desktop is stopped.
 # ------------------------------------------------------------------
-run_section "[1/7] Bridge Network" fix_bridge
-run_section "[2/7] DNS Resolution" fix_dns
-run_section "[7/7] Port Conflicts" fix_ports
+run_section "[1/9] Bridge Network"            fix_bridge
+run_section "[2/9] DNS Resolution"            fix_dns
+run_section "[7/9] Port Conflicts"            fix_ports
+run_section "[8/9] Credential Helper Failure" fix_credhelper
+run_section "[9/9] Disk Space Exhaustion"     fix_disk
 
 # ------------------------------------------------------------------
 # Stop Docker Desktop BEFORE writing to settings-store.json.
@@ -121,10 +126,10 @@ echo "=========================================="
 # Docker Desktop is stopped so these writes are safe - there is no
 # running process to flush in-memory state back over the changes.
 # ------------------------------------------------------------------
-run_section "[3/7] Proxy Configuration"      fix_proxy
-run_section "[4/7] Proxy Failure Simulation" fix_proxyfail
-run_section "[5/7] SSO Configuration"        fix_sso
-run_section "[6/7] Auth Config Enforcement"  fix_authconfig
+run_section "[3/9] Proxy Configuration"      fix_proxy
+run_section "[4/9] Proxy Failure Simulation" fix_proxyfail
+run_section "[5/9] SSO Configuration"        fix_sso
+run_section "[6/9] Auth Config Enforcement"  fix_authconfig
 
 # ------------------------------------------------------------------
 # Relaunch Docker Desktop with the corrected settings.
