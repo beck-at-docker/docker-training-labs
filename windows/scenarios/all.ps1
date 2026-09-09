@@ -66,6 +66,8 @@ Write-Host "  4. Proxy Failure Simulation"
 Write-Host "  5. SSO Configuration"
 Write-Host "  6. Auth Config Enforcement"
 Write-Host "  7. Port Conflicts"
+Write-Host "  8. Credential Helper Failure"
+Write-Host "  9. Disk Space Exhaustion"
 Write-Host ""
 $confirm = Read-Host "Continue? (y/N)"
 if ($confirm -notmatch "^[yY]$") {
@@ -83,17 +85,20 @@ $failedSteps = @()
 # Phase 1: fixes that require Docker to be running.
 #
 # Bridge and DNS inject iptables rules inside the VM via nsenter, which
-# requires a running daemon. Port cleanup uses docker rm. Proxy,
-# ProxyFail, and SSO use the Docker Desktop backend pipe API, which also
-# requires a running daemon. All six must run before Docker Desktop is
-# stopped.
+# requires a running daemon. Port cleanup and the disk space fix use
+# docker rm / docker volume rm. Proxy, ProxyFail, and SSO use the Docker
+# Desktop backend pipe API, which also requires a running daemon. The
+# credential helper fix is a plain config.json edit and works either way.
+# All eight must run before Docker Desktop is stopped.
 # ------------------------------------------------------------------
-Invoke-Section "[1/7] Bridge Network"           { Fix-Bridge }
-Invoke-Section "[2/7] DNS Resolution"           { Fix-Dns }
-Invoke-Section "[3/7] Proxy Configuration"      { Fix-Proxy }
-Invoke-Section "[4/7] Proxy Failure Simulation" { Fix-ProxyFail }
-Invoke-Section "[5/7] SSO Configuration"        { Fix-Sso }
-Invoke-Section "[7/7] Port Conflicts"           { Fix-Ports }
+Invoke-Section "[1/9] Bridge Network"            { Fix-Bridge }
+Invoke-Section "[2/9] DNS Resolution"            { Fix-Dns }
+Invoke-Section "[3/9] Proxy Configuration"       { Fix-Proxy }
+Invoke-Section "[4/9] Proxy Failure Simulation"  { Fix-ProxyFail }
+Invoke-Section "[5/9] SSO Configuration"         { Fix-Sso }
+Invoke-Section "[7/9] Port Conflicts"            { Fix-Ports }
+Invoke-Section "[8/9] Credential Helper Failure" { Fix-CredHelper }
+Invoke-Section "[9/9] Disk Space Exhaustion"     { Fix-Disk }
 
 # ------------------------------------------------------------------
 # Phase 2: fixes that write to settings-store.json.
@@ -110,7 +115,7 @@ Stop-DockerDesktop
 Write-Host ""
 Write-Host "=========================================="
 
-Invoke-Section "[6/7] Auth Config Enforcement"  { Fix-AuthConfig }
+Invoke-Section "[6/9] Auth Config Enforcement"   { Fix-AuthConfig }
 
 # ------------------------------------------------------------------
 # Relaunch Docker Desktop with the corrected settings.
