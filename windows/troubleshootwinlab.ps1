@@ -94,7 +94,11 @@ function Show-MainMenu {
         Write-Host ""
         Write-Host "7. Proxy Connection Issues"
         Write-Host ""
-        Write-Host "8. View my report card"
+        Write-Host "8. Registry Credential Helper Failure"
+        Write-Host ""
+        Write-Host "9. Disk Space Exhaustion"
+        Write-Host ""
+        Write-Host "10. View my report card"
         Write-Host ""
         Write-Host "0. Exit"
     }
@@ -332,6 +336,73 @@ Look for:
 Fix the proxy config and restart Docker Desktop to resolve!
 "@
         }
+        "CREDHELPER" {
+            Write-Host @"
+Problem: Every registry operation fails instantly
+
+docker pull, docker login, and docker push all fail immediately
+with a credential error - before any network request is even made.
+Docker Desktop itself is healthy: docker info works fine, and the
+daemon is running normally.
+
+Symptoms you should observe:
+  - docker pull fails instantly with "error getting credentials"
+  - The error mentions an exec of a "docker-credential-*" binary
+  - docker info shows the daemon healthy with no other errors
+  - The failure happens even for public, unauthenticated images
+
+Diagnostic Commands to Try:
+  docker pull hello-world
+  cat `$env:USERPROFILE\.docker\config.json
+  Get-Command docker-credential-desktop
+
+Look for:
+  - A "credsStore" value in config.json that does not match any
+    docker-credential-<value>.exe binary actually on your PATH
+
+Note: two different things can produce this error - the wrong
+helper name in config.json, or the right name with Docker's bin
+directory missing from PATH. Get-Command tells you which.
+
+Fix the credsStore value so it points at a real credential helper,
+then run troubleshootwinlab --check.
+"@
+        }
+        "DISK" {
+            Write-Host @"
+Problem: Docker operations fail with "no space left on device"
+
+docker pull, docker run, and docker build all start failing with a
+disk space error, even though you haven't intentionally downloaded
+anything large. With the WSL2 backend every image, container, and
+volume shares one virtual disk - something on it has grown too big.
+
+Symptoms you should observe:
+  - docker pull of most images, docker run writes, and docker build
+    all fail with "no space left on device"
+  - Tiny images (like hello-world) may still pull fine - the disk
+    isn't 100% full, just nearly out of room
+  - docker info still reports the daemon as healthy
+  - The problem isn't obvious from 'docker ps' alone
+
+Diagnostic Commands to Try:
+  docker pull nginx:alpine
+  docker system df -v
+  docker volume ls
+  docker ps -a
+
+Look for:
+  - A volume or container holding an unexpectedly large file
+
+Note: the WSL2 disk image (ext4.vhdx under
+`$env:LOCALAPPDATA\Docker\wsl\) does not shrink by itself once it
+has grown. Freeing the space inside the VM is all this lab needs,
+but on a real machine you would also compact the vhdx to give the
+space back to Windows.
+
+Fix it by identifying and removing whatever is consuming the space!
+"@
+        }
     }
 }
 
@@ -370,6 +441,14 @@ function Start-Lab {
         7 {
             $labName     = "PROXYFAIL"  # -> scenarios\break_proxyfail.ps1, tests\test_proxyfail.ps1
             $breakScript = "$INSTALL_DIR\scenarios\break_proxyfail.ps1"
+        }
+        8 {
+            $labName     = "CREDHELPER" # -> scenarios\break_credhelper.ps1, tests\test_credhelper.ps1
+            $breakScript = "$INSTALL_DIR\scenarios\break_credhelper.ps1"
+        }
+        9 {
+            $labName     = "DISK"       # -> scenarios\break_disk.ps1, tests\test_disk.ps1
+            $breakScript = "$INSTALL_DIR\scenarios\break_disk.ps1"
         }
         default {
             Write-Red "Invalid lab selection"
@@ -600,6 +679,8 @@ function Show-ReportCard {
     $bridgeScore     = $null
     $authconfigScore = $null
     $proxyfailScore  = $null
+    $credhelperScore = $null
+    $diskScore       = $null
 
     # Each scenario variable is overwritten on every matching row, so if a
     # trainee attempted the same lab multiple times only the last score is
@@ -614,6 +695,8 @@ function Show-ReportCard {
             "BRIDGE"     { $bridgeScore     = "$($_.score)%" }
             "AUTHCONFIG" { $authconfigScore = "$($_.score)%" }
             "PROXYFAIL"  { $proxyfailScore  = "$($_.score)%" }
+            "CREDHELPER" { $credhelperScore = "$($_.score)%" }
+            "DISK"       { $diskScore       = "$($_.score)%" }
         }
     }
 
@@ -621,7 +704,8 @@ function Show-ReportCard {
     $totalScore = 0
     $labCount   = 0
     foreach ($s in @($dnsScore, $portScore, $proxyScore, $ssoScore,
-                     $bridgeScore, $authconfigScore, $proxyfailScore)) {
+                     $bridgeScore, $authconfigScore, $proxyfailScore,
+                     $credhelperScore, $diskScore)) {
         if ($null -ne $s) {
             $totalScore += [int]($s.TrimEnd('%'))
             $labCount++
@@ -636,6 +720,8 @@ function Show-ReportCard {
     Write-Host "  Broken Networking:   $(if ($bridgeScore)     { $bridgeScore }     else { 'Not attempted' })"
     Write-Host "  Auth Config Errors:  $(if ($authconfigScore) { $authconfigScore } else { 'Not attempted' })"
     Write-Host "  Proxy Conn Issues:   $(if ($proxyfailScore)  { $proxyfailScore }  else { 'Not attempted' })"
+    Write-Host "  Credential Helper:   $(if ($credhelperScore) { $credhelperScore } else { 'Not attempted' })"
+    Write-Host "  Disk Space:          $(if ($diskScore)       { $diskScore }       else { 'Not attempted' })"
     Write-Host ""
 
     if ($labCount -gt 0) {
@@ -664,8 +750,9 @@ function Show-ReportCard {
 #
 # Scenarios split into three groups:
 #
-#   Live fixes (DNS, PORT, BRIDGE) - require a running daemon; use nsenter
-#   or docker rm. No Docker Desktop restart is needed.
+#   Live fixes (DNS, PORT, BRIDGE, DISK) - require a running daemon; use
+#   nsenter or docker rm. No Docker Desktop restart is needed. CREDHELPER is
+#   also restart-free: it only rewrites the user's Docker CLI config.json.
 #
 #   API fixes (PROXY, PROXYFAIL, SSO) - use the backend pipe API while
 #   Docker is running. No stop or restart needed (the API applies changes
@@ -690,6 +777,8 @@ function Invoke-FixCurrentLab {
         "PROXY"     { Fix-Proxy;     break }
         "PROXYFAIL" { Fix-ProxyFail; break }
         "SSO"       { Fix-Sso;       break }
+        "CREDHELPER"{ Fix-CredHelper; break }
+        "DISK"      { Fix-Disk;      break }
 
         "AUTHCONFIG" {
             # AUTHCONFIG writes to settings-store.json. Docker Desktop must
@@ -817,7 +906,9 @@ function Main {
                 "5" { Start-Lab 5; exit 0 }
                 "6" { Start-Lab 6; exit 0 }
                 "7" { Start-Lab 7; exit 0 }
-                "8" { Show-ReportCard; Read-Host "Press enter to continue" }
+                "8" { Start-Lab 8; exit 0 }
+                "9" { Start-Lab 9; exit 0 }
+                "10" { Show-ReportCard; Read-Host "Press enter to continue" }
                 "0" { Write-Host "Goodbye!"; exit 0 }
                 default { Write-Host "Invalid option"; Start-Sleep 1 }
             }

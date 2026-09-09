@@ -506,13 +506,15 @@ every image, container, and volume - something on it has grown too
 big.
 
 Symptoms you should observe:
-- docker pull / docker run / docker build fail with
-  "no space left on device"
+- docker pull of most images, docker run writes, and docker build
+  all fail with "no space left on device"
+- Tiny images (like hello-world) may still pull fine - the disk
+  isn't 100% full, just nearly out of room
 - docker info still reports the daemon as healthy
 - The problem isn't obvious from `docker ps` alone
 
 Diagnostic Commands to Try:
-- docker pull hello-world
+- docker pull nginx:alpine
 - docker system df -v
 - docker volume ls
 - docker ps -a

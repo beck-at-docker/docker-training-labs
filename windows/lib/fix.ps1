@@ -9,9 +9,10 @@
 #
 # Scenario requirements at a glance:
 #
-#   Docker must be RUNNING:  DNS, PORT, BRIDGE, PROXY, PROXYFAIL
+#   Docker must be RUNNING:  DNS, PORT, BRIDGE, PROXY, PROXYFAIL, DISK
 #   Docker must be STOPPED:  AUTHCONFIG
-#   Docker state irrelevant: SSO (pipe API for proxy, no restart needed)
+#   Docker state irrelevant: SSO (pipe API for proxy, no restart needed),
+#                            CREDHELPER (plain config.json edit)
 #
 # PROXY, PROXYFAIL, and SSO use the backend pipe API while Docker is running.
 # They fall back to editing settings-store.json if the pipe is unavailable,
@@ -22,7 +23,9 @@
 # The fix simply deletes registry.json and restarts Docker Desktop.
 #
 # Scenarios that operate via live iptables or container removal (DNS, BRIDGE,
-# PORT) require Docker to be running and do not need a restart to take effect.
+# PORT, DISK) require Docker to be running and do not need a restart to take
+# effect. CREDHELPER only rewrites the user's Docker CLI config.json, which the
+# CLI re-reads on every invocation, so it needs neither.
 #
 # IMPORTANT: Never use 'Set-Content -Encoding UTF8' for JSON files. PowerShell
 # 5.x writes UTF-8 with a BOM (EF BB BF) that Go's JSON parser rejects. Use
@@ -416,6 +419,99 @@ function Fix-AuthConfig {
     Write-Host ""
     Write-Host "Org enforcement configuration removed"
     Write-Host "NOTE: Sign back in manually after Docker Desktop restarts: docker login"
+}
+
+# Fix-CredHelper - Restore the credsStore in the Docker CLI config.
+#
+# break_credhelper.ps1 sets credsStore to a helper name with no matching
+# binary on PATH. Restores from the pre-break backup if present, otherwise
+# resets credsStore to the correct Windows default ("desktop").
+#
+# Works whether or not Docker Desktop is running, and no restart is needed -
+# the CLI re-reads config.json on every invocation.
+function Fix-CredHelper {
+    $configFile = "$env:USERPROFILE\.docker\config.json"
+
+    Write-Host "Removing broken credential helper configuration..."
+
+    if (Test-Path $configFile) {
+        $backupDir = Split-Path $configFile
+        $backups   = Get-ChildItem -Path $backupDir `
+                                   -Filter "config.json.backup-credhelper-*" `
+                                   -ErrorAction SilentlyContinue |
+                     Sort-Object LastWriteTime -Descending
+
+        if ($backups.Count -gt 0) {
+            Copy-Item -Path $backups[0].FullName -Destination $configFile -Force
+            Write-Host "  Restored config.json from backup: $($backups[0].Name)"
+        } else {
+            Write-Host "  No backup found, resetting credsStore to 'desktop'"
+            try {
+                $data = Get-Content $configFile -Raw | ConvertFrom-Json
+            } catch {
+                $data = [PSCustomObject]@{}
+            }
+            $data | Add-Member -MemberType NoteProperty -Name credsStore -Value "desktop" -Force
+            Write-JsonFile -Path $configFile -Content ($data | ConvertTo-Json -Depth 10)
+            Write-Host "  credsStore reset to 'desktop'"
+        }
+    } else {
+        Write-Host "  config.json not found - nothing to fix"
+    }
+
+    Write-Host ""
+    Write-Host "Verifying credential resolution..."
+    docker pull hello-world 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  Credential helper restored"
+        docker rmi hello-world 2>&1 | Out-Null
+    } else {
+        Write-Host "  Still failing - check 'docker pull hello-world' output directly"
+    }
+}
+
+# Fix-Disk - Remove the disk-filling container/volume from break_disk.ps1.
+#
+# The break's only effect is the oversized file inside disk-hog-volume;
+# removing the volume frees the space immediately. Requires a running Docker
+# daemon; no restart needed since nothing outside Docker's own storage was
+# touched.
+#
+# Note: freeing space inside the VM does not shrink the underlying ext4.vhdx
+# on the Windows host - that file stays at its high-water mark until it is
+# compacted. That is expected and does not affect the lab or the fix.
+function Fix-Disk {
+    Write-Host "Cleaning up disk space consumers..."
+
+    docker rm -f disk-hog 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  Removed disk-hog container"
+    } else {
+        Write-Host "  Warning: could not remove disk-hog (it may not exist, or the"
+        Write-Host "  daemon may be too disk-starved to process the request right now)"
+    }
+
+    docker volume rm -f disk-hog-volume 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  Removed disk-hog-volume"
+    } else {
+        Write-Host "  Warning: could not remove disk-hog-volume (it may not exist, or"
+        Write-Host "  the daemon may be too disk-starved to process the request right now)"
+    }
+
+    Write-Host ""
+    Write-Host "Verifying free space..."
+    docker run --rm alpine:latest `
+        sh -c "dd if=/dev/zero of=/tmp/disk_check bs=1M count=100 2>/dev/null && rm -f /tmp/disk_check" 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  Disk space restored"
+    } else {
+        Write-Host "  Disk still constrained. Try:"
+        Write-Host "    docker system prune -a --volumes"
+        Write-Host "  If docker commands are slow or unresponsive, the daemon may need a"
+        Write-Host "  restart to recover from having been disk-starved - quit and reopen"
+        Write-Host "  Docker Desktop, then re-run this fix."
+    }
 }
 
 # Fix-Ports - Remove port-squatter containers and background TCP listener jobs.
