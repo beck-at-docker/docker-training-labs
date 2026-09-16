@@ -455,15 +455,30 @@ PYEOF
 fix_disk() {
     echo "Cleaning up disk space consumers..."
 
-    docker rm -f disk-hog 2>/dev/null && echo "  Removed disk-hog container" || true
-    docker volume rm -f disk-hog-volume 2>/dev/null && echo "  Removed disk-hog-volume" || true
+    if ! docker rm -f disk-hog 2>/dev/null; then
+        echo "  Warning: could not remove disk-hog (it may not exist, or the daemon"
+        echo "  may be too disk-starved to process the request right now)"
+    else
+        echo "  Removed disk-hog container"
+    fi
+
+    if ! docker volume rm -f disk-hog-volume 2>/dev/null; then
+        echo "  Warning: could not remove disk-hog-volume (it may not exist, or the"
+        echo "  daemon may be too disk-starved to process the request right now)"
+    else
+        echo "  Removed disk-hog-volume"
+    fi
 
     echo ""
     echo "Verifying free space..."
     if docker run --rm alpine:latest sh -c "dd if=/dev/zero of=/tmp/disk_check bs=1M count=100 2>/dev/null && rm -f /tmp/disk_check"; then
         echo "  Disk space restored"
     else
-        echo "  Disk still constrained - consider 'docker system prune -a --volumes' or increasing the disk image size in Docker Desktop > Settings > Resources"
+        echo "  Disk still constrained. Try:"
+        echo "    docker system prune -a --volumes"
+        echo "  If docker commands are slow or unresponsive, the daemon may need a"
+        echo "  restart to recover from having been disk-starved - quit and reopen"
+        echo "  Docker Desktop, then re-run this fix."
     fi
 }
 
